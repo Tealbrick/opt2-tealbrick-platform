@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-17T21:37:26.971Z",
+  "generatedAt": "2026-10-17T22:24:54.576Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -3379,6 +3379,32 @@
       "commit": "3ca5c49d8243576c3310f27d7834d57db291dfae",
       "tag": "create-tealbrick-miniapp-v0.1.15",
       "publishedAt": "2026-10-17T17:49:42.530Z"
+    },
+    {
+      "id": "rel_01M55ZFJVN76310CTEJPCYMG24",
+      "product": "create-tealbrick-miniapp",
+      "kind": "package",
+      "version": "0.1.16",
+      "channel": "stable",
+      "manifestDigest": null,
+      "manifestUrl": null,
+      "skillsDigest": null,
+      "image": null,
+      "artifact": {
+        "url": "https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/opt2-tealbrick-sdk-create-tealbrick-miniapp-v0.1.16/create-tealbrick-miniapp-0.1.16.tgz",
+        "sha256": "sha256:9cd781246f5f0875d6ffddee54e79fe4dc5ce9eb4a6bd53cce0244557711c8ff",
+        "integrity": "sha512-jlVOtcDf2Zj06Q/m04RQH45c8EytCsB1KnyZE1+dwpPzQe9FVWDuQ0lfcRj1VwsobMvP7NtIll9hcUFXO+OAqw=="
+      },
+      "source": null,
+      "runtime": null,
+      "services": null,
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-sdk",
+      "commit": "3e5a24d3bb1a3449869e4a491ea02f7dbc5d423a",
+      "tag": "create-tealbrick-miniapp-v0.1.16",
+      "publishedAt": "2026-10-17T22:24:53.106Z"
     },
     {
       "id": "rel_01M4QYD1Y4FWVHZ98EG07BGTVS",
