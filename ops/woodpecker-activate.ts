@@ -1,5 +1,7 @@
 // Activate opt2 repos in Woodpecker and set the CI secrets. Run on the operator machine:
-//   WOODPECKER_URL=<server url> node ops/woodpecker-activate.ts
+//   WOODPECKER_URL=<server url> node ops/woodpecker-activate.ts [--repo <name>]
+// --repo (C259 backlog): touch ONE repo only (activation, settings, its repo secrets); no other repo and no org-level secret
+// is read or changed. <name> = "fleet", "opt2-tealbrick-fleet" or "Tealbrick/opt2-tealbrick-fleet"; it must be a listed repo.
 // Reads tokens from files (never argv, never printed):
 //   ~/.config/opt2-tealbrick/woodpecker-token   Woodpecker personal access token (required)
 // Secrets (C72): Woodpecker holds none; the script deletes any org-level or repo secret it finds. See ci/README.md.
@@ -42,6 +44,23 @@ const REPOS = [
 //  opt2-tealbrick-observer (C169/C190) and opt2-tealbrick-creative (C190) (Coordinator OK 2026-10-17).
 const ACTIVATE_PRIVATE: readonly string[] = ["opt2-tealbrick-admin", "opt2-tealbrick-live-artifacts", "opt2-tealbrick-observer", "opt2-tealbrick-creative"];
 const ALL_REPOS = [...REPOS, ...ACTIVATE_PRIVATE];
+
+/** The repos this run touches: all of them, or the one `--repo` names (a listed repo only; anything else is an error). */
+export function selectRepos(argv: readonly string[], all: readonly string[]): { only: string | null; repos: string[] } {
+  const i = argv.indexOf("--repo");
+  const extra = argv.filter((a, k) => !(i >= 0 && (k === i || k === i + 1)) && !(a === "--repo"));
+  if (extra.length > 0) throw new Error(`unknown argument ${JSON.stringify(extra[0])} (usage: [--repo <name>])`);
+  if (i < 0) return { only: null, repos: [...all] };
+  const raw = argv[i + 1];
+  if (!raw || raw.startsWith("--")) throw new Error("--repo needs a repo name");
+  if (argv.indexOf("--repo", i + 1) >= 0) throw new Error("--repo given twice");
+  const bare = raw.includes("/") ? raw.slice(raw.lastIndexOf("/") + 1) : raw;
+  const name = bare.startsWith("opt2-tealbrick-") ? bare : `opt2-tealbrick-${bare}`;
+  if (!all.includes(name)) throw new Error(`--repo ${JSON.stringify(raw)}: not a repo this script manages`);
+  return { only: name, repos: [name] };
+}
+const { only, repos: TARGETS } = selectRepos(process.argv.slice(2), ALL_REPOS);
+if (only) console.log(`--repo: only ${only} (no other repo, no org-level secret)`);
 const CFG = join(homedir(), ".config/opt2-tealbrick");
 
 const base = process.env.WOODPECKER_URL?.replace(/\/$/, "");
@@ -82,13 +101,13 @@ function githubRepo(repo: string): { fullName: string; id: number } {
   throw new Error(`${repo}: not found under ${OWNERS.join(" or ")}`);
 }
 const gh = new Map<string, { fullName: string; id: number }>();
-for (const repo of ALL_REPOS) gh.set(repo, githubRepo(repo));
+for (const repo of TARGETS) gh.set(repo, githubRepo(repo));
 
 const me = await wp("GET", "/user");
 if (me.status !== 200) throw new Error(`token rejected by Woodpecker (HTTP ${me.status})`);
 console.log(`woodpecker user: ${me.json.login}`);
 
-for (const repo of ALL_REPOS) {
+for (const repo of TARGETS) {
   const cur = gh.get(repo) as { fullName: string; id: number };
   let look = await wp("GET", `/repos/lookup/${cur.fullName}`);
   if (look.status !== 200) {
@@ -156,7 +175,7 @@ const KEEP: Keep[] = [
 // shared with the v1 repos and their own org secrets (C206 incident 2026-10-16: an earlier version of this loop deleted the
 // v1 Tealbrick org secrets registry_host/registry_username/registry_password).
 const CLEAN_ORG_SECRETS_OF = "Martin-Atrin";
-{
+if (!only) {
   const org = await wp("GET", `/orgs/lookup/${CLEAN_ORG_SECRETS_OF}`);
   if (org.status !== 200 && org.status !== 404) throw new Error(`org lookup ${CLEAN_ORG_SECRETS_OF} failed (HTTP ${org.status})`);
   if (org.status === 200) {
@@ -167,7 +186,7 @@ const CLEAN_ORG_SECRETS_OF = "Martin-Atrin";
   }
 }
 const ids = new Map<string, number>();
-for (const repo of ALL_REPOS) {
+for (const repo of TARGETS) {
   for (const name of [(gh.get(repo) as { fullName: string }).fullName, ...OWNERS.map((o) => `${o}/${repo}`)]) {
     const r = await wp("GET", `/repos/lookup/${name}`);
     if (r.status === 200) {
@@ -177,7 +196,7 @@ for (const repo of ALL_REPOS) {
   }
   if (!ids.has(repo)) throw new Error(`${repo}: not found in Woodpecker after activation`);
 }
-for (const repo of ALL_REPOS) {
+for (const repo of TARGETS) {
   const id = ids.get(repo) as number;
   const want = WANT.filter((w) => w.repo === repo);
   const keep = KEEP.filter((k) => k.repo === repo);
