@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-18T06:55:00.302Z",
+  "generatedAt": "2026-10-18T07:03:52.820Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -6818,6 +6818,28 @@
       "commit": "f71d7407f5b9afeaebdf77452a1cde30be98d155",
       "tag": "v0.3.0",
       "publishedAt": "2026-10-18T06:39:12.463Z"
+    },
+    {
+      "id": "rel_01M56X5GGWQ2MMRGCZBV786NB8",
+      "product": "rules",
+      "kind": "app",
+      "version": "0.3.1",
+      "channel": "dev",
+      "manifestDigest": "sha256:ca0d1d29d3ce62e2b3eac7d8bcbceeaa9562d3d1b8c3724e8b267d2139b158d8",
+      "manifestUrl": "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-rules/50a268931160bfb26e343a61d4017853ac1a9fd4/tealbrick.manifest.json",
+      "skillsDigest": "sha256:650ebf0b8ee390a6e33509790978ab05ef0bebde996f682f847ad31ed2776c61",
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-rules@sha256:b0d38dee7177c82a2b141bf030b443f4e995c46899f96e24801b1b39a9c49f7c",
+      "artifact": null,
+      "source": null,
+      "runtime": null,
+      "services": [],
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-rules",
+      "commit": "50a268931160bfb26e343a61d4017853ac1a9fd4",
+      "tag": "v0.3.1",
+      "publishedAt": "2026-10-18T07:03:40.316Z"
     },
     {
       "id": "rel_01M4QA4P7WW7AT1WSE3JBZGHAW",
