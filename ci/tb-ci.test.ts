@@ -1173,9 +1173,9 @@ test("ci-v9.6 pre-release step: no-op without checks, passes a good gate, fails 
 test("ci-v9.6 template: pre-release step after gen; image-check and release-record wait for it; workflow runs the checks on the tag", () => {
   const tpl = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
   assert.equal(stepScript(tpl, "pre-release"), "node .tb-ci/tb-ci.ts pre-release");
-  assert.match(tpl.split("\n")[0] as string, /ci-v9\.11/, "current template (ci-v9.11 keeps the ci-v9.6 pre-release step)");
+  assert.match(tpl.split("\n")[0] as string, /ci-v9\.12/, "current template (ci-v9.12 keeps the ci-v9.6 pre-release step)");
   const wf = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(wf, /TB_CI_REF: ci-v9\.11/);
+  assert.match(wf, /TB_CI_REF: ci-v9\.12/);
   const runner = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
   const build = runner.slice(runner.indexOf("async function cmdGhBuild"), runner.indexOf("async function cmdGhPublish"));
   assert.ok(build.indexOf("runPreReleaseChecks(cfg, root)") > 0, "gh-build runs the checks on the tag");
@@ -1193,9 +1193,11 @@ test("ci-v9.6 opt2-tealbrick-cli: in OPT2_REPOS and the activation list; no repo
   for (const r of PRIVATE_REPOS) assert.ok(OPT2_REPOS.includes(r), `${r} is private but not an opt2 repo`);
   assert.deepEqual(
     [...PRIVATE_REPOS].sort(),
-    ["bridge", "cli", "fleet", "packages", "portal-core", "portal-gui", "qa", "sdk", "specs", "tbd", "website"].map((n) => `opt2-tealbrick-${n}`),
-    "C154/C173 + C206/C208 (private in the org; samples stays public)",
+    ["bridge", "cli", "packages", "portal-core", "portal-gui", "qa", "sdk", "specs", "tbd", "website"].map((n) => `opt2-tealbrick-${n}`),
+    "C154/C173 + C206/C208 (private in the org; samples stays public); C249: fleet (Governance) is public again",
   );
+  assert.ok(!PRIVATE_REPOS.includes("opt2-tealbrick-fleet"), "C249: the Governance repo is public: registry-sync reads it without the token");
+  assert.ok(OPT2_REPOS.includes("opt2-tealbrick-fleet"), "C249: the Governance repo stays an opt2 release repo");
   const activate = readFileSync(new URL("../ops/woodpecker-activate.ts", import.meta.url), "utf8");
   const listed = /const REPOS = \[([\s\S]*?)\]\.map/.exec(activate)?.[1] ?? "";
   const names = [...listed.matchAll(/"([a-z-]+)"/g)].map((m) => `opt2-tealbrick-${m[1]}`);
@@ -2162,7 +2164,7 @@ test("ci-v9.10 C222: a published asset is never replaced", () => {
 test("ci-v9.10 C222 template: release.yaml = build without secret, publish runs no repo code and alone reads the secret", () => {
   const rel = readFileSync(new URL("./woodpecker/release.yaml", import.meta.url), "utf8");
   const ci = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
-  assert.match(rel.split("\n")[0] as string, /template ci-v9\.11/);
+  assert.match(rel.split("\n")[0] as string, /template ci-v9\.12/);
   assert.match(rel, /GENERATED from Tealbrick\/opt2-tealbrick-platform: ci\/woodpecker\/release\.yaml/);
   const ref = /TB_CI_REF: (\S+)/.exec(ci)?.[1];
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
@@ -2333,11 +2335,11 @@ test("ci-v9.11 C232 template: step graph, secrets per step, no secret in any ste
   assert.match(rel, /GITHUB_TOKEN:\n {8}from_secret: tb_release_token\n/);
   // same template id and runner sha256 everywhere
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
-  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.11");
+  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.12");
   for (const m of rel.matchAll(/TB_CI_SHA256: "([^"]*)"/g)) assert.equal(m[1], sha);
   const actions = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(actions, /TB_CI_REF: ci-v9\.11/);
-  assert.match(ci, /TB_CI_REF: ci-v9\.11/);
+  assert.match(actions, /TB_CI_REF: ci-v9\.12/);
+  assert.match(ci, /TB_CI_REF: ci-v9\.12/);
   assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
 });
 
