@@ -1,1 +1,110 @@
-[]
+[
+  {
+    "product": "knowledge",
+    "version": "0.1.21",
+    "devReleaseId": "rel_01M53J6KEH25HCFC5ZQHXNF7WC",
+    "promotedAt": "2026-10-18T00:35:35Z",
+    "by": "contracts-platform-lead",
+    "decision": "C228",
+    "evidence": {
+      "soakStart": "2026-10-17T00:10:14.030Z",
+      "soakEnd": "2026-10-18T00:10:15Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z on qa1 (0 S1, 0 S2)",
+      "platform": {
+        "core": "e69f7840d07aadf560ce5eaca15d274e7364fc3e",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "kanban",
+    "version": "0.1.13",
+    "devReleaseId": "rel_01M53J7T6S55PQ69CE3WS9TAKD",
+    "promotedAt": "2026-10-18T00:35:35Z",
+    "by": "contracts-platform-lead",
+    "decision": "C221",
+    "evidence": {
+      "soakStart": "2026-10-17T00:13:12.701Z",
+      "soakEnd": "2026-10-18T00:13:13Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z on qa1 (0 S1, 0 S2)",
+      "platform": {
+        "core": "e69f7840d07aadf560ce5eaca15d274e7364fc3e",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "inbox",
+    "version": "0.2.9",
+    "devReleaseId": "rel_01M53J8AYSXBXFMYMKGMJS69Y0",
+    "promotedAt": "2026-10-18T00:35:35Z",
+    "by": "contracts-platform-lead",
+    "decision": "C221",
+    "evidence": {
+      "soakStart": "2026-10-17T00:18:09.548Z",
+      "soakEnd": "2026-10-18T00:18:10Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z on qa1 (0 S1, 0 S2)",
+      "platform": {
+        "core": "e69f7840d07aadf560ce5eaca15d274e7364fc3e",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "rules",
+    "version": "0.2.12",
+    "devReleaseId": "rel_01M53J82BWVEDXND8YX8F2MJKT",
+    "promotedAt": "2026-10-18T00:35:35Z",
+    "by": "contracts-platform-lead",
+    "decision": "C221",
+    "evidence": {
+      "soakStart": "2026-10-17T00:23:09.399Z",
+      "soakEnd": "2026-10-18T00:23:10Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z on qa1 (0 S1, 0 S2)",
+      "platform": {
+        "core": "e69f7840d07aadf560ce5eaca15d274e7364fc3e",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "evolution",
+    "version": "0.2.12",
+    "devReleaseId": "rel_01M53J8P7F36EMG1M7NA48FHV3",
+    "promotedAt": "2026-10-18T00:35:35Z",
+    "by": "contracts-platform-lead",
+    "decision": "C221",
+    "evidence": {
+      "soakStart": "2026-10-17T00:28:11.589Z",
+      "soakEnd": "2026-10-18T00:28:12Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z on qa1 (0 S1, 0 S2)",
+      "platform": {
+        "core": "e69f7840d07aadf560ce5eaca15d274e7364fc3e",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "connect",
+    "version": "0.5.11",
+    "devReleaseId": "rel_01M53J795YXGTCQZFFHBE671EM",
+    "promotedAt": "2026-10-18T00:35:35Z",
+    "by": "contracts-platform-lead",
+    "decision": "C221",
+    "evidence": {
+      "soakStart": "2026-10-17T00:33:09.521Z",
+      "soakEnd": "2026-10-18T00:33:10Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z on qa1 (0 S1, 0 S2)",
+      "platform": {
+        "core": "e69f7840d07aadf560ce5eaca15d274e7364fc3e",
+        "bridge": "0.1.31"
+      }
+    }
+  }
+]
