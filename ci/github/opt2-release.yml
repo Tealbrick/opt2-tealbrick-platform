@@ -1,4 +1,4 @@
-# opt2 release publishing (template ci-v9.12, C72). GENERATED from Tealbrick/opt2-tealbrick-platform: ci/github/opt2-release.yml.
+# opt2 release publishing (template ci-v9.13, C72). GENERATED from Tealbrick/opt2-tealbrick-platform: ci/github/opt2-release.yml.
 # Do not edit in a repo: Woodpecker setup fails on drift. Woodpecker runs every other CI stage.
 # Images go to ghcr.io/<owner of this repo>/<name> (ci-v9.8, C206: ghcr.io/tealbrick) with the built-in GITHUB_TOKEN (no personal
 # token). A new package is private after its first push: an org owner makes it public once. Two jobs:
@@ -15,8 +15,8 @@ concurrency:
   group: opt2-release-${{ github.ref }}
   cancel-in-progress: false
 env:
-  TB_CI_REF: ci-v9.12
-  TB_CI_SHA256: "f700aa02f6c52432461e5926c405e9dedb72a4a3f383225dafd5de2ab26c374e"
+  TB_CI_REF: ci-v9.13
+  TB_CI_SHA256: "1eab14e8f2d9f69388f6c45a157d400581147d35ee07607802beae5f471274c1"
 jobs:
   build:
     runs-on: ubuntu-24.04

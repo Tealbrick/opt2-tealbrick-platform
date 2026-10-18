@@ -36,13 +36,14 @@ const REPOS = [
   "fleet",
   "evolution",
   "cli", // C173/C177: private repo (exists since 2026-10-15)
+  "observer", // C258a: public since 2026-10-18; moved out of ACTIVATE_PRIVATE
 ].map((n) => `opt2-tealbrick-${n}`);
 /** C203: private repos activated here that are NOT opt2 release repos (not in OPT2_REPOS / PRIVATE_REPOS: no releases, no
  *  registry-sync, no template audit). Woodpecker visibility private (pipeline logs of proprietary code). */
 //  opt2-tealbrick-live-artifacts (C230 note, Coordinator 2026-10-17): a new mini app built privately before its first release; it
 //  moves into OPT2_REPOS (and out of this list) with the public flip and Martin's yes, before v0.1.0. Same for
-//  opt2-tealbrick-observer (C169/C190) and opt2-tealbrick-creative (C190) (Coordinator OK 2026-10-17).
-const ACTIVATE_PRIVATE: readonly string[] = ["opt2-tealbrick-admin", "opt2-tealbrick-live-artifacts", "opt2-tealbrick-observer", "opt2-tealbrick-creative"];
+//  opt2-tealbrick-creative (C190) (Coordinator OK 2026-10-17). opt2-tealbrick-observer moved to REPOS with its public flip (C258a).
+const ACTIVATE_PRIVATE: readonly string[] = ["opt2-tealbrick-admin", "opt2-tealbrick-live-artifacts", "opt2-tealbrick-creative"];
 const ALL_REPOS = [...REPOS, ...ACTIVATE_PRIVATE];
 
 /** The repos this run touches: all of them, or the one `--repo` names (a listed repo only; anything else is an error). */
