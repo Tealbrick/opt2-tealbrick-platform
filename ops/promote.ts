@@ -49,7 +49,18 @@ export interface ReleaseSet {
 
 const SEMVER = /^\d+\.\d+\.\d+$/;
 const SHA = /^[0-9a-f]{40}$/;
-const SET_ID = /^RS-(\d+)$/;
+/** RS-<n> (release train) or RS-<n>.<h> (hotfix h on top of RS-<n>, e.g. RS-7.1). */
+const SET_ID = /^RS-(\d+)(?:\.(\d+))?$/;
+
+/** The previous set a set must name: RS-1 none; RS-n.1 → RS-n; RS-n.h → RS-n.(h-1); RS-n → RS-(n-1) or any hotfix of it. */
+export function previousRule(id: string): { none: true } | { exact: string } | { major: number } | null {
+  const m = SET_ID.exec(id);
+  if (!m) return null;
+  const n = Number(m[1]);
+  const h = m[2] === undefined ? 0 : Number(m[2]);
+  if (h > 0) return { exact: h === 1 ? `RS-${n}` : `RS-${n}.${h - 1}` };
+  return n === 1 ? { none: true } : { major: n - 1 };
+}
 
 /** Validates a parsed release-set file. Throws with every problem listed. */
 export function parseSet(raw: unknown): ReleaseSet {
@@ -57,7 +68,7 @@ export function parseSet(raw: unknown): ReleaseSet {
   const o = (raw ?? {}) as Record<string, unknown>;
   const id = String(o.id ?? "");
   const m = SET_ID.exec(id);
-  if (!m) errs.push("id must be RS-<n>");
+  if (!m) errs.push("id must be RS-<n> or RS-<n>.<h>");
   if (typeof o.createdAt !== "string" || Number.isNaN(Date.parse(o.createdAt))) errs.push("createdAt must be an ISO date");
   if (typeof o.notes !== "string") errs.push("notes must be a string");
   for (const k of ["portalCore", "adminGui", "portalGui", "website"] as const) {
@@ -81,11 +92,13 @@ export function parseSet(raw: unknown): ReleaseSet {
       seen.add(String(a.product));
     }
   }
-  const n = m ? Number(m[1]) : 0;
-  if (n === 1 && o.previous !== null && o.previous !== undefined) errs.push("RS-1 has no previous set (previous: null)");
-  if (n > 1 && o.previous !== `RS-${n - 1}`) errs.push(`previous must be RS-${n - 1}`);
+  const rule = previousRule(id);
+  if (rule && "none" in rule && o.previous !== null && o.previous !== undefined) errs.push("RS-1 has no previous set (previous: null)");
+  if (rule && "exact" in rule && o.previous !== rule.exact) errs.push(`previous must be ${rule.exact}`);
+  if (rule && "major" in rule && !new RegExp(`^RS-${rule.major}(\\.\\d+)?$`).test(String(o.previous)))
+    errs.push(`previous must be RS-${rule.major} or one of its hotfixes (RS-${rule.major}.<h>)`);
   if (errs.length) throw new Error(`release set invalid:\n  - ${errs.join("\n  - ")}`);
-  return { ...(o as unknown as ReleaseSet), previous: n > 1 ? (o.previous as string) : null };
+  return { ...(o as unknown as ReleaseSet), previous: rule && "none" in rule ? null : (o.previous as string) };
 }
 
 export type ServiceName = "portal-core" | "admin-gui" | "portal-gui" | "website";
@@ -219,7 +232,7 @@ export function parseArgs(argv: readonly string[]): Options {
     if (a.startsWith("--") && !["--set", "--environment", "--dry-run", "--repoint", "--rollback"].includes(a)) throw new Error(`unknown option ${a}`);
   const setFile = val("--set");
   if (!setFile) throw new Error("--set <dir>/RS-<n>.json is required");
-  if (!SET_ID.test(basename(setFile, ".json"))) throw new Error("the set file must be named RS-<n>.json");
+  if (!SET_ID.test(basename(setFile, ".json"))) throw new Error("the set file must be named RS-<n>.json or RS-<n>.<h>.json");
   const environment = val("--environment") ?? "live";
   if (environment === "production") throw new Error('refusing "production": that is DEV; deploy dev with ops/railway-deploy.ts');
   return { setFile, environment, dryRun: argv.includes("--dry-run"), repoint: argv.includes("--repoint"), rollback: argv.includes("--rollback") };
