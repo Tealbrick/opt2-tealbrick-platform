@@ -1,4 +1,4 @@
-# opt2 CI standard (template ci-v9.11)
+# opt2 CI standard (template ci-v9.14)
 
 One Woodpecker pipeline for every opt2 repo. It is an enforced standard, not a convention:
 every repo's `.woodpecker/ci.yaml` is a byte-identical copy of `ci/woodpecker/ci.yaml`, and the
@@ -18,6 +18,7 @@ every repo's `.woodpecker/ci.yaml` is a byte-identical copy of `ci/woodpecker/ci
 | secret-scan | gitleaks over the working tree (redacted output) | any finding |
 | setup | fetches `tb-ci.ts` at the pinned tag, checks its sha256, template drift, `tealbrick-ci.json`, package rules | drift, bad config, `private` missing, required script missing, no lockfile, any `VOLUME` instruction in any Dockerfile (C42) |
 | install | `pnpm install --frozen-lockfile` (or `npm ci`) per path | lockfile out of date |
+| osv-scan, osv-check (ci-v9.14, C262) | beside `install`, after `setup`; no secret. `osv-scan` runs osv-scanner v2.6.0 (image pinned by digest) on the pnpm/npm lockfiles that `setup` listed in `.tb-ci/osv-lockfiles` and writes `.tb-ci/osv.json`; `osv-check` judges the report (see "Vulnerability scan" below). `pre-release`, and so `image-check` and `release-record`, wait for `osv-check` | osv.dev unreachable or a lockfile unreadable (the scan step fails, never passes quietly); a HIGH or CRITICAL vulnerability (CVSS >= 7.0; unknown severity counts as HIGH) with no valid `osvIgnore` entry; an expired `osvIgnore` entry or one that ends more than 90 days ahead |
 | typecheck / lint / unit | root scripts `typecheck`, `lint`, `test` | non-zero exit |
 | conformance | root script `conformance` (required for kind miniapp, bridge) | non-zero exit |
 | build | root script `build` if present; writes `.tb-ci/images.sh` | non-zero exit |
@@ -123,6 +124,15 @@ Apps with companion services (BSA-01): one `kind: "app"` image plus one `kind: "
 ] }
 ```
 
+## Vulnerability scan (ci-v9.14, C262)
+Every pipeline scans the lockfiles (`pnpm-lock.yaml` or `package-lock.json` of every `paths` entry that has a `package.json`) against osv.dev. Nothing else is scanned (no container scan). The `osv-scan` step uses `ghcr.io/google/osv-scanner:v2.6.0@sha256:afd838850ac1a0fcc15ff4a041dc9ba11123c3f0d2666217a5f0fcf9222b55fa` (the image has no node, so the judging is a second step, `osv-check`, in the pinned node image). osv-scanner only sends package names and versions to osv.dev; there is no credential in either step.
+`osv-check` takes the CVSS base score of each vulnerability (the report's group `max_severity`, or the advisory label `database_specific.severity` when that is higher). HIGH is >= 7.0 and CRITICAL is >= 9.0; both fail the step. A vulnerability with no usable severity counts as HIGH (fail closed). LOW and MEDIUM are printed only. The table lists id, package@version, severity, the fixed version and the status.
+A repo accepts a vulnerability for a limited time in `tealbrick-ci.json`:
+```json
+"osvIgnore": [{ "id": "GHSA-xxxx-xxxx-xxxx", "reason": "dev-only dependency, not reachable from the product", "expires": "2026-12-01" }]
+```
+`id` may be the GHSA, CVE or OSV id (any alias of the finding matches). `reason` needs at least 10 characters. `expires` is the first day the entry no longer applies: it must be after the day the check runs and at most 90 days after it. An expired entry, or one that ends more than 90 days ahead, FAILS the check (renew it with a current reason, or fix the dependency). An entry that matches no vulnerability prints a warning (stale; remove it). Unknown keys are refused.
+
 ## Dist host for the assets of private repos (ci-v9.6, C154/C157)
 A repo that goes private cannot serve its release tarballs from github.com to anonymous consumers. Such a repo sets `"distBaseUrl"` in `tealbrick-ci.json` (or the env `TB_DIST_BASE_URL`, which wins). Only the hosts in `DIST_BASES` (`ci/tb-ci.ts`) are accepted: the assets-only public repo `https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download` (C206), `https://releases.tealbrick.com` for prod. Add a host by platform PR only.
 - Layout on a dist host: `<base>/<repo>-<release tag>/<file>`, one path segment. Example: `https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/opt2-tealbrick-cli-relay-v0.1.0/opt2-tealbrick-relay-0.1.0.tgz` (`.sha256` and `.integrity` sit next to it).
@@ -173,6 +183,8 @@ Never run a global `docker/podman system prune` on the CI host (shared daemon).
 4. Raise `ci/MIN_TEMPLATE` by a separate PR only after every repo in `OPT2_REPOS` runs the new template (`template-audit` shows it).
 
 ## Template history (newest first)
+ci-v9.14 (C262): OSV vulnerability scan in the standard pipeline: steps `osv-scan` (osv-scanner v2.6.0 pinned by digest, lockfiles only, no secret) and `osv-check` (`node .tb-ci/tb-ci.ts osv-check`, fails on HIGH/CRITICAL/unknown-severity vulnerabilities), both beside `install`; `pre-release` waits for `osv-check`. `setup` writes `.tb-ci/osv-lockfiles`. New optional field `osvIgnore` in `tealbrick-ci.json` (id, reason, expires; at most 90 days; see "Vulnerability scan"). The release templates change only in the template id. **Migration:** a repo re-runs `node ci/tb-ci.ts adopt ../opt2-tealbrick-<name> --kind <kind>` and commits to get the steps; from then its pipeline can go red on a known vulnerability, so it fixes the dependency or adds an `osvIgnore` entry. The field exists only in the ci-v9.14 runner; an older runner refuses it as an unknown field, so add it only after `adopt`. Repos that stay on ci-v9.13 keep working. `MIN_TEMPLATE` stays `ci-v9.9`.
+
 ci-v9.13 (C258a): `opt2-tealbrick-observer` joins `OPT2_REPOS` with its public flip (it was activated privately in `ops/woodpecker-activate.ts` `ACTIVATE_PRIVATE` before its first release; now in that script's `REPOS`, public Woodpecker visibility). Not dev-only: its tags index by the normal channel rule. The templates change only in the template id. **Migration:** none. `MIN_TEMPLATE` stays `ci-v9.9`.
 
 ci-v9.12 (C249): `opt2-tealbrick-fleet` (Governance) leaves `PRIVATE_REPOS`: the repo is public again (Martin yes, C249), so registry-sync and the template audit read it without `TB_PRIVATE_READ_TOKEN`, and `ops/woodpecker-activate.ts` gives it public Woodpecker visibility. `fleet` stays in `DEV_ONLY_PRODUCTS` (stable offer is a separate decision). The templates change only in the template id. **Migration:** none; repos on ci-v9.11 keep working. `MIN_TEMPLATE` stays `ci-v9.9`.
