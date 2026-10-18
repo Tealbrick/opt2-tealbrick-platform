@@ -173,6 +173,8 @@ Never run a global `docker/podman system prune` on the CI host (shared daemon).
 4. Raise `ci/MIN_TEMPLATE` by a separate PR only after every repo in `OPT2_REPOS` runs the new template (`template-audit` shows it).
 
 ## Template history (newest first)
+ci-v9.12 (C249): `opt2-tealbrick-fleet` (Governance) leaves `PRIVATE_REPOS`: the repo is public again (Martin yes, C249), so registry-sync and the template audit read it without `TB_PRIVATE_READ_TOKEN`, and `ops/woodpecker-activate.ts` gives it public Woodpecker visibility. `fleet` stays in `DEV_ONLY_PRODUCTS` (stable offer is a separate decision). The templates change only in the template id. **Migration:** none; repos on ci-v9.11 keep working. `MIN_TEMPLATE` stays `ci-v9.9`.
+
 ci-v9.11 (C232): `"releaseOn": "woodpecker"` is allowed WITH images. `.woodpecker/release.yaml` gains `release-image` (kaniko `--no-push --tar-path`, no secret) and `release-image-push` (`wp-push`, crane, the only step with `tb_ghcr_token`); `release-publish` attaches `release-candidate.json`. `ops/woodpecker-activate.ts` keeps `tb_ghcr_token`. The Actions template and `ci.yaml` change only in the template id. **Migration:** repos on ci-v9.10 keep working; a private repo with images sets the field and runs `adopt` in the same change. `MIN_TEMPLATE` stays `ci-v9.9`.
 
 ci-v9.10 (C222): `"releaseOn": "woodpecker"` + `.woodpecker/release.yaml` (`wp-build` / `wp-publish`) for private repos; exactly one release file per repo; the Actions release refuses a Woodpecker repo. Repos without the field are unchanged. **Migration:** set the field and run `adopt` in the same change (an older runner refuses the field; setup runs the ci-v9.10 runner). `MIN_TEMPLATE` stays `ci-v9.9`.

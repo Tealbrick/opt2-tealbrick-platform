@@ -149,7 +149,7 @@ export const PRIVATE_REPOS: readonly string[] = [
   "opt2-tealbrick-packages",
   "opt2-tealbrick-tbd",
   "opt2-tealbrick-qa",
-  "opt2-tealbrick-fleet",
+  // C249 (ci-v9.12, Martin yes 2026-10-18): opt2-tealbrick-fleet (Governance) is public again and is read without the token.
 ];
 /** ci-v9.6 (C154/C157): public download hosts for the release assets of private repos. A repo opts in with `distBaseUrl` in
  *  tealbrick-ci.json (or TB_DIST_BASE_URL); only these bases are accepted, so a config can never point dependencies at another host.
