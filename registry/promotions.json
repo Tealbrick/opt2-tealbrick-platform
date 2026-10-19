@@ -160,5 +160,23 @@
         "bridge": "0.1.31"
       }
     }
+  },
+  {
+    "product": "rules",
+    "version": "0.3.1",
+    "devReleaseId": "rel_01M56X5GGWQ2MMRGCZBV786NB8",
+    "promotedAt": "2026-10-19T07:32:21Z",
+    "by": "coordinator",
+    "decision": "C221",
+    "evidence": {
+      "soakStart": "2026-10-18T07:28:10Z",
+      "soakEnd": "2026-10-19T07:28:10Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — Rules 0.3.1 R30-8 + R30-2/4/7 on qa1 (no roll), 2026-10-19 05:36–05:45Z (QA lead): PASS, 0 findings; R30-1/3/5/6 from the 0.3.0 run",
+      "platform": {
+        "core": "6a17c9b66a8c38ce983ce5ac0ed73b4e65bc011c",
+        "bridge": "0.1.31"
+      }
+    }
   }
 ]
