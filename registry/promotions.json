@@ -106,5 +106,23 @@
         "bridge": "0.1.31"
       }
     }
+  },
+  {
+    "product": "bridge",
+    "version": "0.1.31",
+    "devReleaseId": "rel_01M53BAEQSGKVVY4PRM2VE6FBF",
+    "promotedAt": "2026-10-19T05:32:34Z",
+    "by": "contracts-platform-lead",
+    "decision": "C221",
+    "evidence": {
+      "soakStart": "2026-10-16T21:58:13Z",
+      "soakEnd": "2026-10-18T21:58:13Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z (0 S1, 0 S2) + 2026-10-18 qa1 app QA (inbox 0.3.0, evolution 0.2.13, fleet 0.2.0 PASS), all on qa1 bridge 0.1.31; F121 was Core (closed 29ae2fe)",
+      "platform": {
+        "core": "6a17c9b66a8c38ce983ce5ac0ed73b4e65bc011c",
+        "bridge": "0.1.31"
+      }
+    }
   }
 ]
