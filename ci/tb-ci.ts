@@ -378,9 +378,10 @@ export function channelForVersion(version: string): Channel {
 
 /** ci-v9.4: products the signer indexes ONLY on channel "dev" (test fixtures; never offered to stable workspaces).
  *  The one list: releaseChannel() and mergeIndex() both read it. */
-/** C208: fleet is not shipped and its repo goes private (its manifestUrl 404s for Core), so it is dev-only: never offered to a
- *  stable workspace (live has no dev workspaces). Its releases stay in the signed index (re-classified, nothing deleted). */
-export const DEV_ONLY_PRODUCTS: readonly string[] = ["sample-gate", "sample-caller", "sample-pay", "sample-mismatch", "fleet"];
+/** C208 made fleet dev-only; C278 (Martin, 2026-10-19) makes Governance (fleet) a stable app again (its repo is public, C249), so
+ *  it leaves this list. Its dev records indexed meanwhile keep their devOnly flag (signed records are never rewritten,
+ *  PROMOTE-STABLE §5); promotion reads THIS list, not the record flag (promotionReleases). */
+export const DEV_ONLY_PRODUCTS: readonly string[] = ["sample-gate", "sample-caller", "sample-pay", "sample-mismatch"];
 
 export function isDevOnlyProduct(product: string): boolean {
   return DEV_ONLY_PRODUCTS.includes(product);
@@ -604,7 +605,9 @@ export function promotionReleases(
       problems.push(`${where}: ${p.devReleaseId} must be a dev record with an image`);
       continue;
     }
-    if (dev.devOnly || isDevOnlyProduct(dev.product)) {
+    // C278: the CURRENT product list decides, not the record flag: a product that left DEV_ONLY_PRODUCTS keeps devOnly on its
+    // older signed dev records (never rewritten), and the stable copy below drops the flag
+    if (isDevOnlyProduct(dev.product)) {
       problems.push(`${where}: ${dev.product} is dev-only (C113)`);
       continue;
     }

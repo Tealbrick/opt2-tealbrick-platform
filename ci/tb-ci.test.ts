@@ -868,10 +868,11 @@ test("ci-v9.3: release-record pins the spec tarball with sha512 and the lockfile
 // ---------- ci-v9.4 ----------
 
 test("ci-v9.4: DEV_ONLY_PRODUCTS is one list; the signer indexes them on dev only and refuses stable", () => {
-  assert.deepEqual([...DEV_ONLY_PRODUCTS].sort(), ["fleet", "sample-caller", "sample-gate", "sample-mismatch", "sample-pay"]); // C208: + fleet
+  assert.deepEqual([...DEV_ONLY_PRODUCTS].sort(), ["sample-caller", "sample-gate", "sample-mismatch", "sample-pay"]); // C208 + fleet; C278 - fleet
   const src = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
-  // "fleet" is also a repo name in OPT2_REPOS; the product list itself must be the only other mention
-  for (const p of DEV_ONLY_PRODUCTS) assert.equal(src.split(`"${p}"`).length - 1, p === "fleet" ? 2 : 1, `${p} is named once in tb-ci.ts (DEV_ONLY_PRODUCTS)`);
+  for (const p of DEV_ONLY_PRODUCTS) assert.equal(src.split(`"${p}"`).length - 1, 1, `${p} is named once in tb-ci.ts (DEV_ONLY_PRODUCTS)`);
+  assert.equal(src.split('"fleet"').length - 1, 1, "C278: fleet is named only in OPT2_REPOS (no longer dev-only)");
+  assert.equal(releaseChannel("fleet", "0.2.1"), "stable", "C278: fleet follows the semver rule (app kinds still index on dev first)");
   // channel the signer derives: a plain x.y.z tag of a sample is still dev; other products keep the semver rule
   for (const p of DEV_ONLY_PRODUCTS) {
     assert.equal(releaseChannel(p, "0.1.2"), "dev");
@@ -1002,6 +1003,14 @@ test("C113: devOnly mark + re-classification of an old stable record; identical 
     `sample-gate@0.1.1 ${copyDev.id} folded into ${oldStable.id} (identical record)`,
   ]);
   assert.deepEqual(normalizeDevOnly(releases).notes, [], "idempotent");
+  // C278: fleet left the list: its signed dev records are returned unchanged (flag kept, never rewritten, no note);
+  // a remaining dev-only product is still flagged
+  const fleetRec = rel({ id: "rel_01M5FLEETFLEETFLEETFLEET00", product: "fleet", version: "0.2.1", channel: "dev", devOnly: true });
+  const samplePlain = rel({ id: "rel_01M5SAMPLESAMPLESAMPLE000", product: "sample-caller", version: "0.1.0", channel: "dev" });
+  const n2 = normalizeDevOnly([fleetRec, samplePlain]);
+  assert.deepEqual(n2.releases[0], fleetRec, "fleet record unchanged");
+  assert.equal(n2.releases[1]?.devOnly, true, "sample-caller still flagged");
+  assert.deepEqual(n2.notes, ["sample-caller@0.1.0 rel_01M5SAMPLESAMPLESAMPLE000 marked devOnly"]);
   // a copy with other content is never folded
   assert.throws(() => normalizeDevOnly([oldStable, { ...copyDev, image: `ghcr.io/x@sha256:${"9".repeat(64)}` }]), /different content/);
   // mergeIndex applies it: the next signed index carries the marks; a new dev sample release is marked too
@@ -1204,9 +1213,9 @@ test("ci-v9.6 pre-release step: no-op without checks, passes a good gate, fails 
 test("ci-v9.6 template: pre-release step after gen; image-check and release-record wait for it; workflow runs the checks on the tag", () => {
   const tpl = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
   assert.equal(stepScript(tpl, "pre-release"), "node .tb-ci/tb-ci.ts pre-release");
-  assert.match(tpl.split("\n")[0] as string, /ci-v9\.15/, "current template (ci-v9.15 keeps the ci-v9.6 pre-release step)");
+  assert.match(tpl.split("\n")[0] as string, /ci-v9\.16/, "current template (ci-v9.16 keeps the ci-v9.6 pre-release step)");
   const wf = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(wf, /TB_CI_REF: ci-v9\.15/);
+  assert.match(wf, /TB_CI_REF: ci-v9\.16/);
   const runner = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
   const build = runner.slice(runner.indexOf("async function cmdGhBuild"), runner.indexOf("async function cmdGhPublish"));
   assert.ok(build.indexOf("runPreReleaseChecks(cfg, root)") > 0, "gh-build runs the checks on the tag");
@@ -2109,6 +2118,25 @@ test("C207 E4: new app/bridge tags land on dev; stable only by a recorded promot
     promotionReleases({ releases: [sample] }, validatePromotions([{ ...p, product: "sample-gate" }]) as never, { now: "t" }).problems.join(),
     /dev-only/,
   );
+  // a listed dev-only product is refused even when its record has no flag (the list decides)
+  assert.match(
+    promotionReleases({ releases: [rel({ ...dev, product: "sample-pay" })] }, validatePromotions([{ ...p, product: "sample-pay" }]) as never, {
+      now: "t",
+    }).problems.join(),
+    /dev-only/,
+  );
+  // C278: fleet left DEV_ONLY_PRODUCTS; its dev record still carries devOnly:true (signed, never rewritten) and promotes; the
+  // stable copy has no devOnly flag
+  const fleetDev = rel({ ...dev, product: "fleet", devOnly: true });
+  const fleetOut = promotionReleases({ releases: [fleetDev] }, validatePromotions([{ ...p, product: "fleet" }]) as never, {
+    now: "t",
+    newId: () => "rel_01M5FFFFFFFFFFFFFFFFFFFFF0",
+  });
+  assert.deepEqual(fleetOut.problems, []);
+  assert.equal(fleetOut.add.length, 1);
+  assert.equal(fleetOut.add[0]?.channel, "stable");
+  assert.equal(fleetOut.add[0]?.promotedFrom, fleetDev.id);
+  assert.ok(!("devOnly" in (fleetOut.add[0] as object)), "the stable copy drops devOnly");
   assert.throws(() => validatePromotions([{ ...p, version: "0.2.0-rc.1" }]), /pre-release/);
   assert.throws(() => validatePromotions([{ ...p, evidence: { ...ev, qaRun: "" } }]), /qaRun/);
   assert.throws(() => validatePromotions([p, p]), /twice/);
@@ -2201,7 +2229,7 @@ test("ci-v9.10 C222: a published asset is never replaced", () => {
 test("ci-v9.10 C222 template: release.yaml = build without secret, publish runs no repo code and alone reads the secret", () => {
   const rel = readFileSync(new URL("./woodpecker/release.yaml", import.meta.url), "utf8");
   const ci = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
-  assert.match(rel.split("\n")[0] as string, /template ci-v9\.15/);
+  assert.match(rel.split("\n")[0] as string, /template ci-v9\.16/);
   assert.match(rel, /GENERATED from Tealbrick\/opt2-tealbrick-platform: ci\/woodpecker\/release\.yaml/);
   const ref = /TB_CI_REF: (\S+)/.exec(ci)?.[1];
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
@@ -2372,11 +2400,11 @@ test("ci-v9.11 C232 template: step graph, secrets per step, no secret in any ste
   assert.match(rel, /GITHUB_TOKEN:\n {8}from_secret: tb_release_token\n/);
   // same template id and runner sha256 everywhere
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
-  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.15");
+  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.16");
   for (const m of rel.matchAll(/TB_CI_SHA256: "([^"]*)"/g)) assert.equal(m[1], sha);
   const actions = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(actions, /TB_CI_REF: ci-v9\.15/);
-  assert.match(ci, /TB_CI_REF: ci-v9\.15/);
+  assert.match(actions, /TB_CI_REF: ci-v9\.16/);
+  assert.match(ci, /TB_CI_REF: ci-v9\.16/);
   assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
 });
 
@@ -3098,7 +3126,7 @@ test("ci-v9.14 template: osv-scan after setup beside install, image pinned by di
   assert.equal(stepScript(tpl, "osv-check"), "node .tb-ci/tb-ci.ts osv-check .tb-ci/osv.json");
   // the id and the runner hash are the same in every generated file
   for (const f of ["woodpecker/ci.yaml", "woodpecker/release.yaml", "github/opt2-release.yml"])
-    assert.match(readFileSync(new URL(`./${f}`, import.meta.url), "utf8"), /ci-v9\.15/, f);
+    assert.match(readFileSync(new URL(`./${f}`, import.meta.url), "utf8"), /ci-v9\.16/, f);
   assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
   const readme = readFileSync(new URL("./README.md", import.meta.url), "utf8");
   assert.match(readme, /^ci-v9\.14 \(C262\)/m, "template history entry");
