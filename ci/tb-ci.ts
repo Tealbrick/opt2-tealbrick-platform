@@ -355,6 +355,12 @@ export function belowMinimum(ref: string, min: string): boolean {
   return !a || a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]);
 }
 
+/** ci-v9.15: template tags that are broken and must never be (re)adopted, whatever MIN_TEMPLATE says. Tags are never moved, so a
+ *  broken tag stays and is refused here. ci-v9.14: the osv-scan printf line is not a YAML string (Woodpecker compiler error). */
+export const DENIED_TEMPLATES: Readonly<Record<string, string>> = {
+  "ci-v9.14": "does not parse in Woodpecker (osv-scan printf line is a YAML map); adopt ci-v9.15 or later",
+};
+
 function fail(msg: string): never {
   console.error(`tb-ci: FAIL: ${msg}`);
   process.exit(1);
@@ -1981,6 +1987,7 @@ async function cmdSetup(): Promise<void> {
   log(`template ${ref}: identical`);
   const min = (await fetchText(`https://raw.githubusercontent.com/${OWNER}/${PLATFORM_REPO}/main/${MIN_TEMPLATE_PATH}`)).trim();
   if (belowMinimum(ref, min)) fail(`template ${ref} is below the enforced minimum ${min} (C56 D1): run adopt from the platform repo`);
+  if (DENIED_TEMPLATES[ref]) fail(`template ${ref} is denied: ${DENIED_TEMPLATES[ref]}`);
   log(`template ${ref} >= minimum ${min}`);
   if (existsSync(join(root, ".woodpecker/secret-scan.yaml"))) fail(".woodpecker/secret-scan.yaml duplicates the template's secret-scan step; delete it");
   {
@@ -2592,7 +2599,7 @@ async function cmdAuditTemplates(): Promise<void> {
     else log(`${verdict === "OK" ? "OK  " : "FAIL"} ${repo}: ${res.status === 200 ? ref : `HTTP ${res.status}`}`);
     if (verdict === "FAIL") bad.push(`${repo} (${res.status === 200 ? ref : `HTTP ${res.status}`})`);
   }
-  if (bad.length) fail(`below minimum ${min}: ${bad.join(", ")}`);
+  if (bad.length) fail(`below minimum ${min} or denied (${Object.keys(DENIED_TEMPLATES).join(", ")}): ${bad.join(", ")}`);
   log(`all ${OPT2_REPOS.length} repos at or above ${min}`);
 }
 
@@ -3682,7 +3689,7 @@ export function auditVerdict(repo: string, status: number, via: RepoReader["via"
   if (status === 404 && PENDING_REPOS.includes(repo)) return "PEND";
   if (status === 404 && PRIVATE_REPOS.includes(repo) && via !== "read-token") return "SKIP";
   if (status !== 200) return "FAIL";
-  return belowMinimum(ref, min) ? "FAIL" : "OK";
+  return belowMinimum(ref, min) || DENIED_TEMPLATES[ref] !== undefined ? "FAIL" : "OK";
 }
 
 async function fileAt(rd: RepoReader, repo: string, commit: string, path: string): Promise<string> {

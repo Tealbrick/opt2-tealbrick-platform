@@ -32,6 +32,7 @@ import {
   cliSourceReleases,
   cliTarballUrl,
   craneAbsent,
+  DENIED_TEMPLATES,
   DEV_ONLY_PRODUCTS,
   DIST_BASES,
   DIST_PRODUCTS,
@@ -3029,6 +3030,17 @@ test("ci-v9.14 osvLockfiles: a lockfile that clearly lists no package is not sca
   ])
     assert.equal(osvLockfileEmpty("pnpm-lock.yaml", text), false, JSON.stringify(text));
   assert.equal(osvLockfileEmpty("pnpm-lock.yaml", "lockfileVersion: '9.0'\r\npackages: {} # none\r\n"), true, "CRLF + comment, positive evidence");
+});
+
+test("ci-v9.15: the broken ci-v9.14 template is denied in setup and in the template audit, whatever MIN_TEMPLATE says", () => {
+  assert.ok(DENIED_TEMPLATES["ci-v9.14"], "ci-v9.14 is denied");
+  assert.equal(auditVerdict("opt2-tealbrick-sdk", 200, "anonymous", "ci-v9.14", "ci-v9.9"), "FAIL");
+  assert.equal(auditVerdict("opt2-tealbrick-sdk", 200, "anonymous", "ci-v9.15", "ci-v9.9"), "OK");
+  assert.equal(auditVerdict("opt2-tealbrick-sdk", 200, "anonymous", "ci-v9.13", "ci-v9.9"), "OK");
+  const src = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
+  assert.match(src, /if \(DENIED_TEMPLATES\[ref\]\) fail\(/, "setup refuses a denied template");
+  const tpl = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
+  assert.ok(!DENIED_TEMPLATES[/TB_CI_REF: (\S+)/.exec(tpl)?.[1] ?? ""], "the current template is not denied");
 });
 
 test("ci-v9.15 templates are valid YAML for Woodpecker: no unquoted list item contains ': ' or ' #' (ci-v9.14 broke on that)", () => {
