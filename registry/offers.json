@@ -112,6 +112,20 @@
     }
   },
   {
+    "id": "off_01M4QYGT4MSBCWPXBHHZAJXDCF",
+    "kind": "single",
+    "name": "Governance",
+    "products": ["fleet"],
+    "major": 0,
+    "amount": 100,
+    "currency": "usd",
+    "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
+    "stripePrice": {
+      "test": "price_1UPhXmAG4xme4qTLLbDOejds",
+      "live": null
+    }
+  },
+  {
     "id": "off_01M4RWH30Y8F4GF6ZWCMNCW7PD",
     "kind": "single",
     "name": "Sample Pay (test)",

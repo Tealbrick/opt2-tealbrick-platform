@@ -1,4 +1,5 @@
-// C187 (5): Martin enters the secrets of the opt2 `live` environment (PROD in test mode). Agents never run the real mode.
+// C187 (5): Martin enters the secrets of the opt2 `live` environment (PROD). Agents never run the real mode.
+// C231: STRIPE_SECRET_KEY takes a LIVE restricted key (rk_live_) or a TEST key; Core charges only with TB_STRIPE_ALLOW_LIVE=1.
 //   node ops/prod-secrets.ts --dry-run                 lists the variable NAMES this script sets (no Railway call, no prompt)
 //   node ops/prod-secrets.ts [--environment live]      generates TB_KEK, asks for the provider secrets (hidden input) and
 //                                                      sets them with `railway variable set <NAME> --stdin --skip-deploys`
@@ -67,16 +68,17 @@ export const SECRETS: readonly SecretSpec[] = [
     service: "portal-core",
     source: "prompt",
     required: true,
-    label: "Stripe TEST restricted key (rk_test_…) or secret key (sk_test_…)",
-    pattern: /^(rk|sk)_test_[A-Za-z0-9]{20,}$/,
-    hint: "must be a TEST key (rk_test_ or sk_test_): live is in Stripe test mode (C187/C188)",
+    label: "Stripe key: LIVE restricted key (rk_live_…, charges real money) or TEST key (rk_test_… / sk_test_…, to roll back)",
+    // C231: a LIVE key only as a restricted key (least privilege); Core still refuses it until TB_STRIPE_ALLOW_LIVE=1.
+    pattern: /^(rk_live|rk_test|sk_test)_[A-Za-z0-9]{20,}$/,
+    hint: "must be a LIVE restricted key (rk_live_) or a TEST key (rk_test_ / sk_test_); a full live secret key (sk_live_) is refused",
   },
   {
     name: "STRIPE_WEBHOOK_SECRET",
     service: "portal-core",
     source: "prompt",
     required: true,
-    label: "Stripe TEST webhook signing secret of the portal.tealbrick.com endpoint (whsec_…)",
+    label: "Stripe webhook signing secret of https://portal.tealbrick.com/api/v1/stripe/webhook, in the SAME mode as the key (whsec_…)",
     pattern: /^whsec_[A-Za-z0-9]{20,}$/,
     hint: "must start with whsec_",
   },
@@ -192,6 +194,19 @@ export function checkValue(spec: SecretSpec, value: string): string | null {
   if (/\s/.test(value)) return "the value contains spaces or line breaks";
   if (spec.pattern && !spec.pattern.test(value)) return spec.hint;
   return null;
+}
+
+/** C231: what the operator must know after setting a Stripe key (the mode only, never the value). */
+export function stripeModeNotes(collected: readonly { spec: { name: string }; value: string }[]): string[] {
+  const key = collected.find((c) => c.spec.name === "STRIPE_SECRET_KEY")?.value;
+  if (!key) return [];
+  const notes: string[] = [];
+  if (key.startsWith("rk_live_")) {
+    notes.push("STRIPE_SECRET_KEY is a LIVE key. Core runs live only after the cutover lead sets TB_STRIPE_ALLOW_LIVE=1 and removes TB_STRIPE_QA_PROMO.");
+    if (!collected.some((c) => c.spec.name === "STRIPE_WEBHOOK_SECRET"))
+      notes.push("Also set STRIPE_WEBHOOK_SECRET from the LIVE webhook endpoint (--only STRIPE_WEBHOOK_SECRET): a test-mode secret cannot verify live events.");
+  } else notes.push("STRIPE_SECRET_KEY is a TEST key. Core runs in Stripe test mode; the cutover lead removes TB_STRIPE_ALLOW_LIVE.");
+  return notes;
 }
 
 /** C35: 32 random bytes, base64url (43 characters), the format Core's kekFromEnv reads. */
@@ -333,6 +348,7 @@ async function main(): Promise<void> {
       console.log(`  set ${spec.service} ${spec.name}`);
     }
     const kekId = collected.find((c) => c.spec.name === "TB_KEK_ID")?.value;
+    for (const l of stripeModeNotes(collected)) console.log(l);
     console.log('done. Nothing was deployed. Tell the cutover lead: "secrets are set".');
     if (kekId)
       console.log(`TB_KEK_ID = ${kekId} (not secret). Copy TB_KEK from the Railway dashboard into Vaultwarden now; write the id in ops/ROTATION-LOG.md.`);

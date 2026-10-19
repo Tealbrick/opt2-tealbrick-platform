@@ -13,6 +13,7 @@ import {
   parseArgs,
   parseSet,
   planSteps,
+  previousRule,
   type ReleaseSet,
   recordPath,
   rollbackCommand,
@@ -191,4 +192,19 @@ test("adminReachable: 200, or the Cloudflare Access login", () => {
   assert.equal(adminReachable(302, "https://evil.example/"), false);
   assert.equal(adminReachable(404, null), false);
   assert.equal(adminReachable(502, null), false);
+});
+
+test("hotfix sets: RS-7.1 → RS-7, RS-7.2 → RS-7.1, RS-8 → RS-7 or RS-7.<h>", () => {
+  assert.deepEqual(previousRule("RS-7.1"), { exact: "RS-7" });
+  assert.deepEqual(previousRule("RS-7.2"), { exact: "RS-7.1" });
+  assert.deepEqual(previousRule("RS-8"), { major: 7 });
+  assert.deepEqual(previousRule("RS-1"), { none: true });
+  assert.equal(previousRule("RS-7.x"), null);
+  assert.equal(parseSet(base({ id: "RS-7.1", previous: "RS-7" })).previous, "RS-7");
+  assert.throws(() => parseSet(base({ id: "RS-7.1", previous: "RS-6" })), /previous must be RS-7/);
+  assert.equal(parseSet(base({ id: "RS-8", previous: "RS-7.1" })).previous, "RS-7.1");
+  assert.equal(parseSet(base({ id: "RS-8", previous: "RS-7" })).previous, "RS-7");
+  assert.throws(() => parseSet(base({ id: "RS-8", previous: "RS-6.1" })), /RS-7 or one of its hotfixes/);
+  assert.equal(parseArgs(["--set", "r/RS-7.1.json"]).setFile, "r/RS-7.1.json");
+  assert.equal(rollbackCommand(parseSet(base({ id: "RS-7.1", previous: "RS-7" })), "/x/RS-7.1.json"), "node ops/promote.ts --rollback --set /x/RS-7.json");
 });

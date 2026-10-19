@@ -14,8 +14,14 @@ import {
   assetDecision,
   auditVerdict,
   belowMinimum,
+  buildCandidateDoc,
+  CANDIDATE_ASSET,
   CLI_DIST_BASE,
   CLI_REPO,
+  CRANE_SHA256,
+  CRANE_URL,
+  CRANE_VERSION,
+  type CraneRun,
   channelForVersion,
   checkDependencies,
   checkPackageJson,
@@ -25,6 +31,8 @@ import {
   cliReleaseFromAssets,
   cliSourceReleases,
   cliTarballUrl,
+  craneAbsent,
+  DENIED_TEMPLATES,
   DEV_ONLY_PRODUCTS,
   DIST_BASES,
   DIST_PRODUCTS,
@@ -39,16 +47,20 @@ import {
   expectedGenFiles,
   GH_WORKFLOW_PATH,
   ghcrFind,
+  ghcrPushDecision,
   IMAGE_NAMESPACE,
   IMAGE_NAMESPACES,
   INDEX_KINDS,
   type IndexRelease,
+  imageLabelProblems,
   imageNamespace,
   isDistTarballUrl,
   isReleaseTarballUrl,
   isSpecTarballUrl,
+  KANIKO_PLATFORM,
   KNOWN_OWNERS,
   LEGACY_OWNERS,
+  labelsFromImageTar,
   loadManifestPkg,
   loadProductBindings,
   lockfileTarballs,
@@ -61,7 +73,17 @@ import {
   normalizeDistBase,
   normalizeLegacyOwners,
   OPT2_REPOS,
+  OSV_CONFIG_FILE,
+  OSV_IGNORE_MAX_DAYS,
+  OSV_LOCKFILES_FILE,
+  OSV_REPORT_FILE,
   OWNER,
+  osvIgnoreProblems,
+  osvLockfileEmpty,
+  osvLockfiles,
+  osvSeverityOf,
+  osvTable,
+  osvVerdict,
   PENDING_REPOS,
   PG_DONE_MARKER,
   PG_MARKER,
@@ -73,18 +95,22 @@ import {
   packageReleaseCommands,
   packEntryTargets,
   packScriptOutputProblems,
+  parseOsvIgnore,
+  parseOsvReport,
   parsePackageTag,
   parsePackScripts,
   parsePreReleaseChecks,
   preReleaseEnv,
   productBindingProblem,
   promotionReleases,
+  pushImages,
   REGISTRY_EXTRA_ASSETS,
   releaseChannel,
   releaseFileProblems,
   releaseGuard,
   releaseUrl,
   renderImagesScript,
+  renderReleaseImagesScript,
   repoAliases,
   repoFullName,
   repoReader,
@@ -108,9 +134,12 @@ import {
   verifyImageProvenance,
   verifyOwnerRewrites,
   versionFromTag,
+  WP_GHCR_SECRET,
+  WP_IMAGE_SCRIPT,
   WP_RELEASE_PATH,
   WP_RELEASE_SECRET,
   workspaceGlobs,
+  wpCandidateDoc,
   wpReleaseTarget,
 } from "./tb-ci.ts";
 
@@ -758,7 +787,23 @@ test("ci-v9.3 template: every step has depends_on, the graph is acyclic and keep
   const g = templateGraph(tpl);
   assert.deepEqual(
     [...g.keys()],
-    ["secret-scan", "setup", "install", "typecheck", "lint", "postgres", "unit", "conformance", "build", "gen", "pre-release", "image-check", "release-record"],
+    [
+      "secret-scan",
+      "setup",
+      "install",
+      "osv-scan",
+      "osv-check",
+      "typecheck",
+      "lint",
+      "postgres",
+      "unit",
+      "conformance",
+      "build",
+      "gen",
+      "pre-release",
+      "image-check",
+      "release-record",
+    ],
   );
   for (const [name, s] of g) {
     assert.equal(s.detach, false, `${name}: no detached steps (they end red on this Woodpecker)`);
@@ -780,8 +825,10 @@ test("ci-v9.3 template: every step has depends_on, the graph is acyclic and keep
   const level = (n: string): number => 1 + Math.max(0, ...(g.get(n)?.deps ?? []).map(level));
   assert.equal(level("postgres"), level("unit"), "postgres ends after unit, so it must share unit's stage (an earlier stage deadlocks)");
   // the node chain is the old sequential order
-  const chain = ["secret-scan", "setup", "install", "typecheck", "lint", "unit", "conformance", "build", "gen", "pre-release"];
+  const chain = ["secret-scan", "setup", "install", "typecheck", "lint", "unit", "conformance", "build", "gen"];
   for (let i = 1; i < chain.length; i++) assert.deepEqual(g.get(chain[i] as string)?.deps, [chain[i - 1]], `${chain[i]} follows ${chain[i - 1]}`);
+  // ci-v9.14 (C262): pre-release also waits for the OSV check
+  assert.deepEqual(g.get("pre-release")?.deps, ["gen", "osv-check"]);
   assert.deepEqual(g.get("secret-scan")?.deps, []);
   // postgres runs BESIDE unit (Woodpecker runs a graph in stages: a stage ends when all its steps end, so postgres, which
   // ends after unit, must be in unit's stage), never in front of it; nothing may depend on it except through that stage.
@@ -821,10 +868,11 @@ test("ci-v9.3: release-record pins the spec tarball with sha512 and the lockfile
 // ---------- ci-v9.4 ----------
 
 test("ci-v9.4: DEV_ONLY_PRODUCTS is one list; the signer indexes them on dev only and refuses stable", () => {
-  assert.deepEqual([...DEV_ONLY_PRODUCTS].sort(), ["fleet", "sample-caller", "sample-gate", "sample-mismatch", "sample-pay"]); // C208: + fleet
+  assert.deepEqual([...DEV_ONLY_PRODUCTS].sort(), ["sample-caller", "sample-gate", "sample-mismatch", "sample-pay"]); // C208 + fleet; C278 - fleet
   const src = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
-  // "fleet" is also a repo name in OPT2_REPOS; the product list itself must be the only other mention
-  for (const p of DEV_ONLY_PRODUCTS) assert.equal(src.split(`"${p}"`).length - 1, p === "fleet" ? 2 : 1, `${p} is named once in tb-ci.ts (DEV_ONLY_PRODUCTS)`);
+  for (const p of DEV_ONLY_PRODUCTS) assert.equal(src.split(`"${p}"`).length - 1, 1, `${p} is named once in tb-ci.ts (DEV_ONLY_PRODUCTS)`);
+  assert.equal(src.split('"fleet"').length - 1, 1, "C278: fleet is named only in OPT2_REPOS (no longer dev-only)");
+  assert.equal(releaseChannel("fleet", "0.2.1"), "stable", "C278: fleet follows the semver rule (app kinds still index on dev first)");
   // channel the signer derives: a plain x.y.z tag of a sample is still dev; other products keep the semver rule
   for (const p of DEV_ONLY_PRODUCTS) {
     assert.equal(releaseChannel(p, "0.1.2"), "dev");
@@ -955,6 +1003,14 @@ test("C113: devOnly mark + re-classification of an old stable record; identical 
     `sample-gate@0.1.1 ${copyDev.id} folded into ${oldStable.id} (identical record)`,
   ]);
   assert.deepEqual(normalizeDevOnly(releases).notes, [], "idempotent");
+  // C278: fleet left the list: its signed dev records are returned unchanged (flag kept, never rewritten, no note);
+  // a remaining dev-only product is still flagged
+  const fleetRec = rel({ id: "rel_01M5FLEETFLEETFLEETFLEET00", product: "fleet", version: "0.2.1", channel: "dev", devOnly: true });
+  const samplePlain = rel({ id: "rel_01M5SAMPLESAMPLESAMPLE000", product: "sample-caller", version: "0.1.0", channel: "dev" });
+  const n2 = normalizeDevOnly([fleetRec, samplePlain]);
+  assert.deepEqual(n2.releases[0], fleetRec, "fleet record unchanged");
+  assert.equal(n2.releases[1]?.devOnly, true, "sample-caller still flagged");
+  assert.deepEqual(n2.notes, ["sample-caller@0.1.0 rel_01M5SAMPLESAMPLESAMPLE000 marked devOnly"]);
   // a copy with other content is never folded
   assert.throws(() => normalizeDevOnly([oldStable, { ...copyDev, image: `ghcr.io/x@sha256:${"9".repeat(64)}` }]), /different content/);
   // mergeIndex applies it: the next signed index carries the marks; a new dev sample release is marked too
@@ -1157,9 +1213,9 @@ test("ci-v9.6 pre-release step: no-op without checks, passes a good gate, fails 
 test("ci-v9.6 template: pre-release step after gen; image-check and release-record wait for it; workflow runs the checks on the tag", () => {
   const tpl = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
   assert.equal(stepScript(tpl, "pre-release"), "node .tb-ci/tb-ci.ts pre-release");
-  assert.match(tpl.split("\n")[0] as string, /ci-v9\.10/, "current template (ci-v9.10 keeps the ci-v9.6 pre-release step)");
+  assert.match(tpl.split("\n")[0] as string, /ci-v9\.16/, "current template (ci-v9.16 keeps the ci-v9.6 pre-release step)");
   const wf = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(wf, /TB_CI_REF: ci-v9\.10/);
+  assert.match(wf, /TB_CI_REF: ci-v9\.16/);
   const runner = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
   const build = runner.slice(runner.indexOf("async function cmdGhBuild"), runner.indexOf("async function cmdGhPublish"));
   assert.ok(build.indexOf("runPreReleaseChecks(cfg, root)") > 0, "gh-build runs the checks on the tag");
@@ -1177,9 +1233,11 @@ test("ci-v9.6 opt2-tealbrick-cli: in OPT2_REPOS and the activation list; no repo
   for (const r of PRIVATE_REPOS) assert.ok(OPT2_REPOS.includes(r), `${r} is private but not an opt2 repo`);
   assert.deepEqual(
     [...PRIVATE_REPOS].sort(),
-    ["bridge", "cli", "fleet", "packages", "portal-core", "portal-gui", "qa", "sdk", "specs", "tbd", "website"].map((n) => `opt2-tealbrick-${n}`),
-    "C154/C173 + C206/C208 (private in the org; samples stays public)",
+    ["bridge", "cli", "packages", "portal-core", "portal-gui", "qa", "sdk", "specs", "tbd", "website"].map((n) => `opt2-tealbrick-${n}`),
+    "C154/C173 + C206/C208 (private in the org; samples stays public); C249: fleet (Governance) is public again",
   );
+  assert.ok(!PRIVATE_REPOS.includes("opt2-tealbrick-fleet"), "C249: the Governance repo is public: registry-sync reads it without the token");
+  assert.ok(OPT2_REPOS.includes("opt2-tealbrick-fleet"), "C249: the Governance repo stays an opt2 release repo");
   const activate = readFileSync(new URL("../ops/woodpecker-activate.ts", import.meta.url), "utf8");
   const listed = /const REPOS = \[([\s\S]*?)\]\.map/.exec(activate)?.[1] ?? "";
   const names = [...listed.matchAll(/"([a-z-]+)"/g)].map((m) => `opt2-tealbrick-${m[1]}`);
@@ -1541,9 +1599,19 @@ test("C154: an unreadable private repo is a loud registry-sync rejection naming 
   assert.ok(!activate.includes('visibility: "public"'), "no repo is forced public in Woodpecker");
   // C203: the private Admin GUI repo is activated with private logs, outside OPT2_REPOS (it publishes nothing)
   assert.ok(/const ACTIVATE_PRIVATE[^=]*= \["opt2-tealbrick-admin"[,\]]/.test(activate), "Admin GUI repo activated as private");
-  // 2026-10-17: a new mini app repo is built privately before its first release (activated private, outside OPT2_REPOS)
-  assert.ok(/const ACTIVATE_PRIVATE[^=]*= \[[^\]]*"opt2-tealbrick-live-artifacts"/.test(activate), "Live Artifacts repo activated as private");
-  assert.ok(!OPT2_REPOS.includes("opt2-tealbrick-live-artifacts"), "Live Artifacts joins OPT2_REPOS only with its public flip");
+  // C258a: Observer is public: an opt2 release repo, no longer activated privately, not in PRIVATE_REPOS
+  assert.ok(!/const ACTIVATE_PRIVATE[^=]*= \[[^\]]*"opt2-tealbrick-observer"/.test(activate), "Observer left ACTIVATE_PRIVATE with its public flip");
+  assert.ok(OPT2_REPOS.includes("opt2-tealbrick-observer"), "Observer joined OPT2_REPOS with its public flip");
+  // C249 (ci-v9.15): Live Artifacts is public: an opt2 release repo, no longer activated privately, not in PRIVATE_REPOS
+  assert.ok(
+    !/const ACTIVATE_PRIVATE[^=]*= \[[^\]]*"opt2-tealbrick-live-artifacts"/.test(activate),
+    "Live Artifacts left ACTIVATE_PRIVATE with its public flip",
+  );
+  assert.ok(OPT2_REPOS.includes("opt2-tealbrick-live-artifacts"), "Live Artifacts joined OPT2_REPOS with its public flip");
+  assert.ok(!PRIVATE_REPOS.includes("opt2-tealbrick-live-artifacts"), "Live Artifacts is public");
+  assert.ok(!PRIVATE_REPOS.includes("opt2-tealbrick-observer"), "Observer is public");
+  assert.ok(/const ACTIVATE_PRIVATE[^=]*= \[[^\]]*"opt2-tealbrick-creative"/.test(activate), "Creative repo activated as private");
+  assert.ok(!OPT2_REPOS.includes("opt2-tealbrick-creative"), "Creative joins OPT2_REPOS only with its public flip");
   assert.ok(!OPT2_REPOS.includes("opt2-tealbrick-admin"), "the Admin GUI repo is not an opt2 release repo");
 });
 
@@ -2050,6 +2118,25 @@ test("C207 E4: new app/bridge tags land on dev; stable only by a recorded promot
     promotionReleases({ releases: [sample] }, validatePromotions([{ ...p, product: "sample-gate" }]) as never, { now: "t" }).problems.join(),
     /dev-only/,
   );
+  // a listed dev-only product is refused even when its record has no flag (the list decides)
+  assert.match(
+    promotionReleases({ releases: [rel({ ...dev, product: "sample-pay" })] }, validatePromotions([{ ...p, product: "sample-pay" }]) as never, {
+      now: "t",
+    }).problems.join(),
+    /dev-only/,
+  );
+  // C278: fleet left DEV_ONLY_PRODUCTS; its dev record still carries devOnly:true (signed, never rewritten) and promotes; the
+  // stable copy has no devOnly flag
+  const fleetDev = rel({ ...dev, product: "fleet", devOnly: true });
+  const fleetOut = promotionReleases({ releases: [fleetDev] }, validatePromotions([{ ...p, product: "fleet" }]) as never, {
+    now: "t",
+    newId: () => "rel_01M5FFFFFFFFFFFFFFFFFFFFF0",
+  });
+  assert.deepEqual(fleetOut.problems, []);
+  assert.equal(fleetOut.add.length, 1);
+  assert.equal(fleetOut.add[0]?.channel, "stable");
+  assert.equal(fleetOut.add[0]?.promotedFrom, fleetDev.id);
+  assert.ok(!("devOnly" in (fleetOut.add[0] as object)), "the stable copy drops devOnly");
   assert.throws(() => validatePromotions([{ ...p, version: "0.2.0-rc.1" }]), /pre-release/);
   assert.throws(() => validatePromotions([{ ...p, evidence: { ...ev, qaRun: "" } }]), /qaRun/);
   assert.throws(() => validatePromotions([p, p]), /twice/);
@@ -2061,22 +2148,39 @@ test("C207 E4: new app/bridge tags land on dev; stable only by a recorded promot
 
 const sha40 = (c: string) => c.repeat(40);
 
-test("ci-v9.10 C222: releaseOn config field (default actions; woodpecker = package tarballs only)", () => {
+test("ci-v9.10 C222 / ci-v9.11 C232: releaseOn config field (default actions; woodpecker allowed with images, every other rule kept)", () => {
   assert.equal(validateConfig({ kind: "library" }, repo).releaseOn, "actions");
   assert.equal(validateConfig({ kind: "library", releaseOn: "woodpecker" }, repo).releaseOn, "woodpecker");
   assert.throws(() => validateConfig({ kind: "library", releaseOn: "github" }, repo), /releaseOn/);
+  // ci-v9.11: images are accepted with releaseOn woodpecker (the ci-v9.10 refusal is gone)
+  const withImages = validateConfig(
+    { kind: "miniapp", releaseOn: "woodpecker", images: [{ name: repo, product: "knowledge", kind: "app", manifest: "tealbrick.manifest.json" }] },
+    repo,
+  );
+  assert.equal(withImages.releaseOn, "woodpecker");
+  assert.deepEqual(
+    withImages.images.map((i) => i.name),
+    [repo],
+  );
+  // every other config rule still fires with releaseOn woodpecker
   assert.throws(
     () =>
       validateConfig(
-        { kind: "miniapp", releaseOn: "woodpecker", images: [{ name: repo, product: "knowledge", kind: "app", manifest: "tealbrick.manifest.json" }] },
+        { kind: "miniapp", releaseOn: "woodpecker", images: [{ name: "other-repo", product: "knowledge", kind: "app", manifest: "m.json" }] },
         repo,
       ),
-    /package tarballs only/,
+    /images\[0\]\.name/,
   );
+  assert.throws(
+    () => validateConfig({ kind: "miniapp", releaseOn: "woodpecker", images: [{ name: repo, product: "knowledge", kind: "app" }] }, repo),
+    /needs manifest/,
+  );
+  assert.throws(() => validateConfig({ kind: "miniapp", releaseOn: "woodpecker", images: [], nope: 1 }, repo), /unknown field nope/);
   const schema = JSON.parse(readFileSync(new URL("./tealbrick-ci.schema.json", import.meta.url), "utf8")) as {
-    properties: { releaseOn: { enum: string[] } };
+    properties: { releaseOn: { enum: string[]; description: string } };
   };
   assert.deepEqual(schema.properties.releaseOn.enum, ["actions", "woodpecker"]);
+  assert.ok(!/no images/.test(schema.properties.releaseOn.description), "the schema no longer says package tarballs only");
 });
 
 test("ci-v9.10 C222: exactly one release publisher per repo", () => {
@@ -2125,7 +2229,7 @@ test("ci-v9.10 C222: a published asset is never replaced", () => {
 test("ci-v9.10 C222 template: release.yaml = build without secret, publish runs no repo code and alone reads the secret", () => {
   const rel = readFileSync(new URL("./woodpecker/release.yaml", import.meta.url), "utf8");
   const ci = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
-  assert.match(rel.split("\n")[0] as string, /template ci-v9\.10/);
+  assert.match(rel.split("\n")[0] as string, /template ci-v9\.16/);
   assert.match(rel, /GENERATED from Tealbrick\/opt2-tealbrick-platform: ci\/woodpecker\/release\.yaml/);
   const ref = /TB_CI_REF: (\S+)/.exec(ci)?.[1];
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
@@ -2150,11 +2254,15 @@ test("ci-v9.10 C222 template: release.yaml = build without secret, publish runs 
   assert.match(rel, /image: docker\.io\/woodpeckerci\/plugin-git:2\.10\.1/, "the default trusted clone image (gets the netrc)");
   assert.match(rel, /tags: true/);
   const steps = rel.slice(rel.indexOf("\nsteps:"));
-  const build = steps.slice(steps.indexOf("- name: release-build"), steps.indexOf("- name: release-publish"));
+  const build = steps.slice(steps.indexOf("- name: release-build"), steps.indexOf("- name: release-image\n"));
   const publish = steps.slice(steps.indexOf("- name: release-publish"));
   assert.ok(!build.includes("from_secret"), "the build step never sees a secret");
-  assert.equal([...rel.matchAll(/from_secret: (\S+)/g)].map((m) => m[1]).join(), WP_RELEASE_SECRET, "one secret, publish step only");
-  assert.match(publish, /depends_on: \[release-build\]/);
+  assert.deepEqual(
+    [...rel.matchAll(/from_secret: (\S+)/g)].map((m) => m[1]),
+    [WP_GHCR_SECRET, WP_RELEASE_SECRET],
+    "two secrets: the image-push step reads the first, the publish step the second",
+  );
+  assert.match(publish, /depends_on: \[release-build, release-image-push\]/);
   const pubScript = stepScript(`${publish}\n\n`, "release-publish").split("\n");
   assert.deepEqual(pubScript.slice(1, 4), [
     "cd /tmp",
@@ -2197,4 +2305,901 @@ test("ci-v9.10 C222: the Actions release refuses a repo that releases on Woodpec
   const runner = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
   const build = runner.slice(runner.indexOf("async function cmdGhBuild"), runner.indexOf("async function cmdGhPublish"));
   assert.match(build, /cfg\.releaseOn === "woodpecker" && !wpBuildActive/);
+});
+
+// ---------- ci-v9.11 (C232): image releases on Woodpecker ----------
+
+interface WpStep {
+  name: string;
+  image: string;
+  dependsOn: string[];
+  secrets: string[];
+  commands: string[];
+}
+
+/** Parses the `steps:` list of a template (the layout the templates use: 2-space `- name:`, anchors on `image:`). */
+function wpSteps(yaml: string): WpStep[] {
+  const body = yaml.slice(yaml.indexOf("\nsteps:\n") + "\nsteps:\n".length);
+  const anchors = new Map<string, string>();
+  const steps: WpStep[] = [];
+  for (const block of body.split(/\n(?= {2}- name: )/)) {
+    const name = /^ {2}- name: (\S+)/.exec(block)?.[1];
+    if (!name) continue;
+    const imageRaw = /^ {4}image: (.+)$/m.exec(block)?.[1] ?? "";
+    const def = /^&(\S+) (\S+)$/.exec(imageRaw);
+    const ref = /^\*(\S+)$/.exec(imageRaw);
+    if (def) anchors.set(def[1] as string, def[2] as string);
+    const image = def ? (def[2] as string) : ref ? (anchors.get(ref[1] as string) as string) : imageRaw;
+    const dep = /^ {4}depends_on: \[(.*)\]$/m.exec(block)?.[1];
+    const cmdBlock = block.includes("    commands:\n") ? block.slice(block.indexOf("    commands:\n") + "    commands:\n".length) : "";
+    steps.push({
+      name,
+      image,
+      dependsOn: dep ? dep.split(",").map((x) => x.trim()) : [],
+      secrets: [...block.matchAll(/from_secret: (\S+)/g)].map((m) => m[1] as string),
+      commands: cmdBlock
+        .split("\n")
+        .filter((l) => /^ {6}- /.test(l))
+        .map((l) => l.replace(/^ {6}- /, "")),
+    });
+  }
+  return steps;
+}
+
+test("ci-v9.11 C232 template: step graph, secrets per step, no secret in any step that runs repo code", () => {
+  const rel = readFileSync(new URL("./woodpecker/release.yaml", import.meta.url), "utf8");
+  const ci = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
+  const steps = wpSteps(rel);
+  assert.deepEqual(
+    steps.map((s) => [s.name, s.dependsOn, s.secrets]),
+    [
+      ["release-build", [], []],
+      ["release-image", ["release-build"], []],
+      ["release-image-push", ["release-image"], [WP_GHCR_SECRET]],
+      ["release-publish", ["release-build", "release-image-push"], [WP_RELEASE_SECRET]],
+    ],
+    "graph and secrets per step",
+  );
+  const by = (n: string) => steps.find((s) => s.name === n) as WpStep;
+  // release-image uses the SAME pinned kaniko image as the ci workflow's image-check, and the ci workflow is unchanged in that step
+  const kaniko = /image: &kaniko (\S+)/.exec(ci)?.[1];
+  assert.match(kaniko ?? "", /^gcr\.io\/kaniko-project\/executor:v[\d.]+-debug@sha256:[0-9a-f]{64}$/);
+  assert.equal(by("release-image").image, kaniko);
+  assert.deepEqual(by("release-image").commands, [`sh ${WP_IMAGE_SCRIPT}`]);
+  assert.equal(wpSteps(ci).find((s) => s.name === "image-check")?.image, kaniko);
+  // steps that execute anything from the workspace are repo-code steps: no secret in them, nor a token variable in their env
+  const runsWorkspaceCode = (s: WpStep) =>
+    s.commands.some(
+      (c) => /(^|\s)(node|sh|bash|npm|pnpm|corepack|\.\/)\s*\.?\/?\.tb-ci\//.test(c) || /\.tb-ci\/tb-ci\.ts/.test(c.replace(/\/tmp\/tb-ci\.ts/, "")),
+    );
+  const repoCode = steps.filter(runsWorkspaceCode).map((s) => s.name);
+  assert.deepEqual(repoCode, ["release-build", "release-image"]);
+  for (const s of steps.filter(runsWorkspaceCode)) assert.deepEqual(s.secrets, [], `${s.name} runs repo code: no secret`);
+  // the two secret steps run NO repo code: the first thing that executes is a hash-checked file under /tmp, started after cd /tmp
+  for (const n of ["release-image-push", "release-publish"]) {
+    const cmds = by(n).commands;
+    const cd = cmds.indexOf("cd /tmp");
+    const first = cmds.findIndex((c) => /^(\S+=\S+ )?node /.test(c));
+    assert.ok(cd >= 0 && first > cd, `${n}: cd /tmp before the runner`);
+    assert.match(cmds[first] as string, /node \/tmp\/tb-ci\.ts wp-(push|publish)$/);
+    assert.ok(cmds.includes('echo "$TB_CI_SHA256  /tmp/tb-ci.ts" | sha256sum -c -'), `${n}: runner sha256 checked`);
+    assert.ok(cmds.indexOf('echo "$TB_CI_SHA256  /tmp/tb-ci.ts" | sha256sum -c -') < first, `${n}: sha256 checked before the runner starts`);
+    assert.ok(!cmds.some((c) => /\.tb-ci\/tb-ci\.ts|npm |pnpm |corepack|git |sh \.tb-ci/.test(c)), `${n}: nothing from the workspace is executed`);
+    assert.ok(!cmds.some((c) => /TOKEN|echo \$|printenv|\benv\b/.test(c.replace("TB_CI_SHA256", ""))), `${n}: no command prints or names a token`);
+  }
+  assert.deepEqual(by("release-image-push").commands, [
+    "set +x",
+    'OUT="$CI_WORKSPACE/.tb-ci/out"',
+    "cd /tmp",
+    'curl -fsSL "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-platform/$TB_CI_REF/ci/tb-ci.ts" -o /tmp/tb-ci.ts',
+    'echo "$TB_CI_SHA256  /tmp/tb-ci.ts" | sha256sum -c -',
+    'TB_OUT="$OUT" node /tmp/tb-ci.ts wp-push',
+  ]);
+  // the secret reaches the step as GHCR_TOKEN (the runner refuses GITHUB_TOKEN there and GHCR_TOKEN in wp-publish)
+  assert.match(rel, /GHCR_TOKEN:\n {8}from_secret: tb_ghcr_token\n/);
+  assert.match(rel, /GITHUB_TOKEN:\n {8}from_secret: tb_release_token\n/);
+  // same template id and runner sha256 everywhere
+  const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
+  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.16");
+  for (const m of rel.matchAll(/TB_CI_SHA256: "([^"]*)"/g)) assert.equal(m[1], sha);
+  const actions = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
+  assert.match(actions, /TB_CI_REF: ci-v9\.16/);
+  assert.match(ci, /TB_CI_REF: ci-v9\.16/);
+  assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
+});
+
+test("ci-v9.11 C232: crane is pinned by version and sha256 inside the runner (the same bytes as the release's checksums.txt)", () => {
+  assert.match(CRANE_VERSION, /^v\d+\.\d+\.\d+$/);
+  assert.equal(CRANE_URL, `https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz`);
+  assert.match(CRANE_SHA256, /^[0-9a-f]{64}$/);
+  const src = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
+  const push = src.slice(src.indexOf("async function cmdWpPush"), src.indexOf("function cmdPlanImages"));
+  assert.ok(push.indexOf("!== CRANE_SHA256") > push.indexOf("await fetch(CRANE_URL)"), "the download is checked");
+  assert.ok(push.indexOf("!== CRANE_SHA256") < push.indexOf('execFileSync("tar"'), "the bytes are checked before they are unpacked");
+});
+
+test("ci-v9.11 C232: the kaniko script builds each image from the tag without pushing (labels, platform, tarball path)", () => {
+  const commit = sha40("a");
+  const images = validateConfig(
+    {
+      kind: "bridge",
+      releaseOn: "woodpecker",
+      images: [
+        { name: "opt2-tealbrick-bridge-server", product: "bridge", kind: "bridge", context: ".", dockerfile: "server/Dockerfile" },
+        { name: "opt2-tealbrick-bridge-tool", product: "tool", kind: "portal", context: "tool" },
+      ],
+    },
+    "opt2-tealbrick-bridge",
+  ).images;
+  assert.equal(images.length, 2);
+  const script = renderReleaseImagesScript(images, "Tealbrick/opt2-tealbrick-bridge", "0.1.32", commit);
+  const lines = script.split("\n").filter((l) => l.startsWith("/kaniko/executor"));
+  assert.equal(lines.length, images.length);
+  for (const [i, l] of lines.entries()) {
+    const im = images[i] as { name: string; context: string; dockerfile: string };
+    assert.ok(l.startsWith("/kaniko/executor --no-push "), "never pushes");
+    assert.ok(!/--cache|--insecure|--registry|docker login|config\.json/.test(l), "no registry or credential flag");
+    assert.ok(l.includes(`--destination ghcr.io/tealbrick/${im.name}:0.1.32`));
+    assert.ok(l.includes(`--custom-platform ${KANIKO_PLATFORM}`) && KANIKO_PLATFORM === "linux/amd64");
+    assert.ok(l.includes(`--label org.opencontainers.image.revision=${commit}`));
+    assert.ok(l.includes("--label org.opencontainers.image.source=https://github.com/Tealbrick/opt2-tealbrick-bridge"));
+    assert.ok(l.includes("--label org.opencontainers.image.version=0.1.32"));
+    assert.ok(l.includes(`--tar-path "$CI_WORKSPACE/.tb-ci/out/${im.name}.tar"`));
+    assert.ok(l.includes(`--context "$CI_WORKSPACE/${im.context}"`) && l.includes(`--dockerfile "$CI_WORKSPACE/${im.dockerfile}"`));
+  }
+  assert.match(script, /^set -eu$/m);
+  // sh accepts it
+  const dir = mkdtempSync(join(tmpdir(), "tb-img-"));
+  try {
+    writeFileSync(join(dir, "s.sh"), script);
+    execFileSync("sh", ["-n", join(dir, "s.sh")]);
+    writeFileSync(join(dir, "n.sh"), renderReleaseImagesScript([], "Tealbrick/x", "", commit));
+    assert.match(execFileSync("sh", [join(dir, "n.sh")], { encoding: "utf8" }), /no images for this tag/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  // fire on bad input: nothing odd reaches the shell
+  assert.throws(() => renderReleaseImagesScript(images, "Tealbrick/x", "0.1.0", "abc"), /bad commit/);
+  assert.throws(() => renderReleaseImagesScript(images, "Tealbrick/x", "0.1.0; rm -rf /", commit), /bad version/);
+  assert.throws(() => renderReleaseImagesScript(images, "x y/z", "0.1.0", commit), /bad repo/);
+  assert.throws(
+    () => renderReleaseImagesScript([{ ...(images[0] as object), name: "a b" }] as typeof images, "Tealbrick/x", "0.1.0", commit),
+    /bad image name/,
+  );
+  const odd = renderReleaseImagesScript([{ ...(images[0] as object), context: 'a"$(id)`b' }] as typeof images, "Tealbrick/x", "0.1.0", commit);
+  assert.ok(odd.includes('--context "$CI_WORKSPACE/a\\"\\$(id)\\`b"'), "context is escaped inside the double quotes");
+});
+
+/** A `docker save` style tarball like kaniko --tar-path writes: manifest.json -> config entry (named sha256:<hex>) -> layer. */
+function makeImageTar(dir: string, name: string, labels: Record<string, string>): string {
+  const src = join(dir, `src-${name}`);
+  mkdirSync(src, { recursive: true });
+  const cfg = JSON.stringify({ architecture: "amd64", os: "linux", config: { Labels: labels } });
+  const cfgName = `sha256:${createHash("sha256").update(cfg).digest("hex")}`;
+  writeFileSync(join(src, cfgName), cfg);
+  writeFileSync(join(src, "layer.tar.gz"), "layer");
+  writeFileSync(join(src, "manifest.json"), JSON.stringify([{ Config: cfgName, RepoTags: [`ghcr.io/tealbrick/${name}:0.1.0`], Layers: ["layer.tar.gz"] }]));
+  const tarPath = join(dir, `${name}.tar`);
+  execFileSync("tar", ["-cf", tarPath, "-C", src, cfgName, "layer.tar.gz", "manifest.json"]);
+  return tarPath;
+}
+const tarReader = (tarPath: string) => (member: string) => execFileSync("tar", ["-xOf", tarPath, member]);
+
+test("ci-v9.11 C232: image tarball labels are read from the tarball and must carry the tag commit and this repo", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tb-lbl-"));
+  try {
+    const commit = sha40("c");
+    const good = { "org.opencontainers.image.revision": commit, "org.opencontainers.image.source": "https://github.com/Tealbrick/opt2-tealbrick-bridge" };
+    const tar = makeImageTar(dir, "good", good);
+    assert.deepEqual(labelsFromImageTar(tarReader(tar)), good);
+    assert.deepEqual(imageLabelProblems(good, "Tealbrick/opt2-tealbrick-bridge", commit), []);
+    assert.match(imageLabelProblems(good, "Tealbrick/opt2-tealbrick-bridge", sha40("d")).join(), /revision label/);
+    assert.match(imageLabelProblems(good, "Tealbrick/other", commit).join(), /source label/);
+    assert.equal(imageLabelProblems({}, "Tealbrick/x", commit).length, 2, "an unlabelled image is refused");
+    assert.deepEqual(labelsFromImageTar(tarReader(makeImageTar(dir, "none", {}))), {});
+    // two images in one tarball, or a config path that climbs out: refused
+    assert.throws(() => labelsFromImageTar(() => Buffer.from("[{},{}]")), /exactly one image/);
+    assert.throws(() => labelsFromImageTar(() => Buffer.from('[{"Config":"../../etc/passwd"}]')), /plain config entry/);
+    assert.throws(() => labelsFromImageTar(() => Buffer.from('[{"Config":"-xvf"}]')), /plain config entry/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** An in-memory registry behind the crane CLI contract the runner relies on (digest [--tarball], push). */
+function fakeCrane(
+  registry: Map<string, string>,
+  tarDigests: Map<string, string>,
+  o: { lookupError?: string; pushStores?: string; pushFails?: boolean } = {},
+): { run: CraneRun; calls: string[][] } {
+  const calls: string[][] = [];
+  const run: CraneRun = (args) => {
+    calls.push(args);
+    const ok = (stdout: string) => ({ code: 0, stdout: `${stdout}\n`, stderr: "" });
+    if (args[0] === "digest" && args[1] === "--tarball") {
+      const d = tarDigests.get(args[2] as string);
+      return d ? ok(d) : { code: 1, stdout: "", stderr: "Error: no such tarball\n" };
+    }
+    if (args[0] === "digest") {
+      if (o.lookupError) return { code: 1, stdout: "", stderr: o.lookupError };
+      const d = registry.get(args[1] as string);
+      return d ? ok(d) : { code: 1, stdout: "", stderr: `Error: GET https://ghcr.io/v2/x: MANIFEST_UNKNOWN: manifest unknown; map[Tag:${args[1]}]\n` };
+    }
+    if (args[0] === "push") {
+      if (o.pushFails) return { code: 1, stdout: "", stderr: "Error: PUT: UNAUTHORIZED: authentication required\n" };
+      registry.set(args[2] as string, o.pushStores ?? (tarDigests.get(args[1] as string) as string));
+      return ok(`${args[2]}@digest`);
+    }
+    return { code: 2, stdout: "", stderr: `unexpected ${args.join(" ")}\n` };
+  };
+  return { run, calls };
+}
+const dgst = (c: string) => `sha256:${c.repeat(64)}`;
+
+test("ci-v9.11 C232: push step pushes a new tag, writes the digest, and never overwrites a tag with another digest", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tb-push-"));
+  try {
+    const ns = "ghcr.io/tealbrick";
+    const images = [{ name: "opt2-tealbrick-bridge-server", tar: "opt2-tealbrick-bridge-server.tar" }];
+    const ref = `${ns}/opt2-tealbrick-bridge-server:0.1.32`;
+    const tarPath = join(dir, images[0]?.tar as string);
+    const digestFile = join(dir, "opt2-tealbrick-bridge-server.digest");
+    const base = { out: dir, images, ns, version: "0.1.32" };
+    // good: a new tag is pushed once and the digest file names the pushed bytes
+    {
+      const reg = new Map<string, string>();
+      const f = fakeCrane(reg, new Map([[tarPath, dgst("a")]]));
+      const lines = pushImages({ ...base, crane: f.run });
+      assert.deepEqual(
+        f.calls.filter((c) => c[0] === "push"),
+        [["push", tarPath, ref]],
+      );
+      assert.equal(reg.get(ref), dgst("a"));
+      assert.equal(readFileSync(digestFile, "utf8"), `${dgst("a")}\n`);
+      assert.match(lines.join(), /pushed sha256:a{64}/);
+      // retry of the same build: same digest = skipped, no second push
+      const again = fakeCrane(reg, new Map([[tarPath, dgst("a")]]));
+      assert.match(pushImages({ ...base, crane: again.run }).join(), /already published with the same digest/);
+      assert.equal(again.calls.filter((c) => c[0] === "push").length, 0);
+    }
+    // bad: the tag exists with ANOTHER digest -> alarm, no push, no digest file
+    {
+      rmSync(digestFile, { force: true });
+      const reg = new Map([[ref, dgst("b")]]);
+      const f = fakeCrane(reg, new Map([[tarPath, dgst("a")]]));
+      assert.throws(() => pushImages({ ...base, crane: f.run }), /ALARM: .*already points to sha256:b{64}.*never overwritten/);
+      assert.equal(f.calls.filter((c) => c[0] === "push").length, 0, "nothing was pushed");
+      assert.ok(!existsSync(digestFile), "no digest file for a refused push");
+      assert.equal(reg.get(ref), dgst("b"), "the registry is unchanged");
+    }
+    // bad: the lookup fails for another reason than 'not found' (401/403/5xx) -> fail closed, no push
+    for (const err of [
+      "Error: GET: UNAUTHORIZED: authentication required\n",
+      "Error: GET: DENIED: requested access to the resource is denied\n",
+      "Error: dial tcp: i/o timeout\n",
+    ]) {
+      const f = fakeCrane(new Map(), new Map([[tarPath, dgst("a")]]), { lookupError: err });
+      assert.throws(() => pushImages({ ...base, crane: f.run }), /cannot tell whether the tag exists/);
+      assert.equal(f.calls.filter((c) => c[0] === "push").length, 0);
+    }
+    // bad: the registry reads back another digest than the tarball -> alarm; a failed push -> error, no digest file
+    {
+      const f = fakeCrane(new Map(), new Map([[tarPath, dgst("a")]]), { pushStores: dgst("e") });
+      assert.throws(() => pushImages({ ...base, crane: f.run }), /ALARM: .*reads back as sha256:e{64}/);
+      assert.ok(!existsSync(digestFile));
+      const g = fakeCrane(new Map(), new Map([[tarPath, dgst("a")]]), { pushFails: true });
+      assert.throws(() => pushImages({ ...base, crane: g.run }), /push failed/);
+      assert.ok(!existsSync(digestFile));
+    }
+    // bad: an unreadable tarball
+    assert.throws(() => pushImages({ ...base, crane: fakeCrane(new Map(), new Map()).run }), /cannot read the digest/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  assert.equal(ghcrPushDecision(null, dgst("a")), "push");
+  assert.equal(ghcrPushDecision(dgst("a"), dgst("a")), "same");
+  assert.equal(ghcrPushDecision(dgst("b"), dgst("a")), "conflict");
+  assert.ok(craneAbsent("Error: GET https://ghcr.io/v2/tealbrick/x/manifests/1: MANIFEST_UNKNOWN: manifest unknown"));
+  assert.ok(craneAbsent("Error: GET https://ghcr.io/v2/x: NAME_UNKNOWN: repository name not known"));
+  assert.ok(craneAbsent("2026/10/17 HEAD request failed\nError: GET https://ghcr.io/v2/x/manifests/1: unexpected status code 404 Not Found"));
+  for (const no of [
+    "Error: UNAUTHORIZED",
+    "Error: DENIED",
+    "unexpected status code 503",
+    "unexpected status code 401 Unauthorized",
+    "dial tcp: lookup ghcr.io: no such host",
+    "",
+  ])
+    assert.ok(!craneAbsent(no), `not proof of absence: ${no}`);
+});
+
+test("ci-v9.11 C232: release-candidate.json = the signer's own document, with the pushed digests (read from the digest files)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "tb-cand-"));
+  try {
+    const bridge = "opt2-tealbrick-bridge";
+    const cfg = validateConfig(
+      {
+        kind: "bridge",
+        releaseOn: "woodpecker",
+        images: [{ name: `${bridge}-server`, product: "bridge", kind: "bridge", dockerfile: "server/Dockerfile", upgradeFrom: ">=0.1.0" }],
+      },
+      bridge,
+    );
+    const plan = { images: [{ name: `${bridge}-server`, tar: `${bridge}-server.tar`, version: "0.1.32" }] };
+    writeFileSync(join(dir, `${bridge}-server.digest`), `${dgst("f")}\n`);
+    const doc = await wpCandidateDoc(cfg, bridge, "v0.1.32", sha40("1"), plan, dir);
+    assert.deepEqual(doc, {
+      schema: "opt2.release-candidate/v1",
+      repo: `Tealbrick/${bridge}`,
+      tag: "v0.1.32",
+      commit: sha40("1"),
+      candidates: [
+        {
+          product: "bridge",
+          kind: "bridge",
+          version: "0.1.32",
+          image: `ghcr.io/tealbrick/${bridge}-server@${dgst("f")}`,
+          services: [],
+          manifest: null,
+          runtimeFile: "server/bridge-runtime.json",
+          upgradeFrom: ">=0.1.0",
+        },
+      ],
+    });
+    assert.equal(CANDIDATE_ASSET, "release-candidate.json");
+    // the same document the signer builds from ghcr (one function)
+    const viaGhcr = await buildCandidateDoc(cfg, bridge, "v0.1.32", sha40("1"), async (n) => `ghcr.io/tealbrick/${n}@${dgst("f")}`);
+    assert.deepEqual(viaGhcr, doc);
+    // fire on bad: plan and config disagree, a digest file is missing or not a digest
+    await assert.rejects(wpCandidateDoc(cfg, bridge, "v0.1.32", sha40("1"), { images: [] }, dir), /plan images \[\] != tealbrick-ci\.json images/);
+    rmSync(join(dir, `${bridge}-server.digest`));
+    await assert.rejects(wpCandidateDoc(cfg, bridge, "v0.1.32", sha40("1"), plan, dir), /no digest for image/);
+    writeFileSync(join(dir, `${bridge}-server.digest`), "latest\n");
+    await assert.rejects(wpCandidateDoc(cfg, bridge, "v0.1.32", sha40("1"), plan, dir), /not a sha256 digest/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const src = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
+  assert.ok(src.includes("return buildCandidateDoc(cfg, repo, tag, commit, (name) => ghcrFind(name, version));"), "the signer uses the shared builder");
+  const pub = src.slice(src.indexOf("async function cmdWpPublish"), src.indexOf("// ---------- Woodpecker image releases"));
+  assert.ok(pub.includes("publishAssetOnce(full, rel, CANDIDATE_ASSET"), "attached once, never replaced");
+  assert.ok(pub.includes("tealbrick-ci.json?ref=${target.commit}"), "the declared images come from the config at the tag commit on GitHub");
+  assert.ok(!pub.includes("putAsset") && !pub.includes('"DELETE"'));
+});
+
+test("ci-v9.11 C232: the token stays out of argv, logs, the workspace and the other steps' runner paths", () => {
+  const src = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
+  const push = src.slice(src.indexOf("async function cmdWpPush"), src.indexOf("function cmdPlanImages"));
+  assert.ok(push.includes('"--password-stdin"], token)'), "login reads the token from crane's stdin");
+  assert.equal([...push.matchAll(/\btoken\b/g)].length, 4, "token: the null check, the guard line and the stdin use only");
+  assert.ok(!push.includes("${token}") && !/console\./.test(push), "the token value is never interpolated into a log or error line");
+  assert.ok(
+    push.includes("mkdtempSync(join(tmpdir()") && /finally \{\s*rmSync\(tmp, \{ recursive: true, force: true \}\);/.test(push),
+    "docker config + binary live in /tmp and are removed",
+  );
+  assert.ok(push.includes("DOCKER_CONFIG: cfgDir") && push.includes("HOME: tmp"), "the child env holds no secret and points at the temp config");
+  assert.ok(!push.includes("TB_OUT") || !/writeFileSync\(join\(out[^)]*token/.test(push));
+  // the two tokens never meet in one step: each command refuses the other's variable
+  assert.ok(push.includes('["GITHUB_TOKEN", "GH_TOKEN"]'), "wp-push refuses the release token variables");
+  const pub = src.slice(src.indexOf("async function cmdWpPublish"), src.indexOf("// ---------- Woodpecker image releases"));
+  assert.ok(pub.includes("process.env.GHCR_TOKEN"), "wp-publish refuses the ghcr token variable");
+  const build = src.slice(src.indexOf("async function cmdWpBuild"), src.indexOf("async function ghBytes"));
+  assert.ok(build.includes("GHCR_TOKEN"), "wp-build refuses it too");
+});
+
+/** Runs the runner binary like a Woodpecker step does (env cleared, cwd outside the workspace unless told otherwise). */
+function runRunner(cmd: string, env: Record<string, string>, cwd: string): { code: number; out: string; err: string } {
+  const runner = new URL("./tb-ci.ts", import.meta.url).pathname;
+  try {
+    const out = execFileSync(process.execPath, [runner, cmd], { cwd, env: { PATH: process.env.PATH ?? "", ...env }, stdio: "pipe" });
+    return { code: 0, out: out.toString(), err: "" };
+  } catch (e) {
+    const x = e as { status: number; stdout: Buffer; stderr: Buffer };
+    return { code: x.status, out: x.stdout.toString(), err: x.stderr.toString() };
+  }
+}
+
+test("ci-v9.11 C232: wp-build on a tag with images records the plan, runs no docker and leaves the kaniko script", () => {
+  const work = mkdtempSync(join(tmpdir(), "tb-wpb-"));
+  try {
+    const bridge = "opt2-tealbrick-bridge";
+    const g = (...a: string[]) => execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...a], { cwd: work, stdio: "pipe" });
+    g("init", "-q", "-b", "main");
+    writeFileSync(
+      join(work, "tealbrick-ci.json"),
+      JSON.stringify({
+        kind: "bridge",
+        releaseOn: "woodpecker",
+        images: [{ name: `${bridge}-server`, product: "bridge", kind: "bridge", dockerfile: "server/Dockerfile" }],
+      }),
+    );
+    mkdirSync(join(work, "server"));
+    writeFileSync(join(work, "server/Dockerfile"), "FROM scratch\n");
+    g("add", ".");
+    g("commit", "-q", "-m", "x");
+    g("tag", "v0.1.32");
+    const commit = g("rev-parse", "HEAD").toString().trim();
+    const env = { CI_WORKSPACE: work, CI_REPO_NAME: bridge, CI_PIPELINE_EVENT: "tag", CI_COMMIT_TAG: "v0.1.32", CI_COMMIT_SHA: commit };
+    // docker must not be needed: a fake docker on PATH records any call (the Woodpecker node image has none)
+    const fakeBin = join(work, "..", `fakebin-${Date.now()}`);
+    mkdirSync(fakeBin);
+    writeFileSync(join(fakeBin, "docker"), `#!/bin/sh\necho "$@" >> "${fakeBin}/docker-called"\nexit 1\n`);
+    chmodSync(join(fakeBin, "docker"), 0o755);
+    const path = `${fakeBin}:/usr/bin:/bin`;
+    const r = runRunner("wp-build", { ...env, PATH: path }, work);
+    assert.equal(r.code, 0, r.err);
+    assert.ok(!existsSync(join(fakeBin, "docker-called")), "wp-build never calls docker");
+    rmSync(fakeBin, { recursive: true, force: true });
+    const plan = JSON.parse(readFileSync(join(work, ".tb-ci/out/plan.json"), "utf8"));
+    assert.deepEqual(plan.images, [{ name: `${bridge}-server`, tar: `${bridge}-server.tar`, version: "0.1.32" }]);
+    assert.deepEqual(plan.assets, []);
+    const script = readFileSync(join(work, WP_IMAGE_SCRIPT), "utf8");
+    assert.ok(script.includes(`--label org.opencontainers.image.revision=${commit}`));
+    assert.ok(script.includes(`--tar-path "$CI_WORKSPACE/.tb-ci/out/${bridge}-server.tar"`));
+    assert.ok(script.includes(`--destination ghcr.io/tealbrick/${bridge}-server:0.1.32`));
+    assert.ok(script.includes(`--dockerfile "$CI_WORKSPACE/server/Dockerfile"`));
+    // fire on bad: a token in the build step
+    const tok = runRunner("wp-build", { ...env, GHCR_TOKEN: "x", PATH: "/usr/bin:/bin" }, work);
+    assert.match(tok.err, /wp-build must run without GHCR_TOKEN/);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("ci-v9.11 C232: wp-push checks the plan and the tarball labels before it touches the network, and refuses the wrong environment", () => {
+  const work = mkdtempSync(join(tmpdir(), "tb-wpp-"));
+  const tmpCwd = mkdtempSync(join(tmpdir(), "tb-cwd-"));
+  try {
+    const bridge = "opt2-tealbrick-bridge";
+    const out = join(work, ".tb-ci/out");
+    mkdirSync(out, { recursive: true });
+    const commit = sha40("2");
+    const name = `${bridge}-server`;
+    const planOf = (images: unknown[], over: Record<string, string> = {}) =>
+      writeFileSync(
+        join(out, "plan.json"),
+        JSON.stringify({ schema: "opt2.gh-release-plan/v1", repo: bridge, tag: "v0.1.32", commit, images, assets: [], ...over }),
+      );
+    const env = {
+      CI_WORKSPACE: work,
+      CI_REPO_NAME: bridge,
+      CI_PIPELINE_EVENT: "tag",
+      CI_COMMIT_TAG: "v0.1.32",
+      CI_COMMIT_SHA: commit,
+      TB_OUT: out,
+      GHCR_TOKEN: "t",
+      HOME: tmpCwd,
+    };
+    const img = { name, tar: `${name}.tar`, version: "0.1.32" };
+    // no images: nothing to do, no token needed, exit 0 (also for package tags)
+    planOf([]);
+    const none = runRunner("wp-push", { ...env, GHCR_TOKEN: "" }, tmpCwd);
+    assert.equal(none.code, 0, none.err);
+    assert.match(none.out, /no images/);
+    // refusals
+    planOf([img]);
+    assert.match(runRunner("wp-push", { ...env, GITHUB_TOKEN: "x" }, tmpCwd).err, /must run without GITHUB_TOKEN/);
+    assert.match(runRunner("wp-push", env, work).err, /outside the workspace/);
+    assert.match(runRunner("wp-push", { ...env, GHCR_TOKEN: "" }, tmpCwd).err, /needs the secret tb_ghcr_token/);
+    assert.match(runRunner("wp-push", { ...env, CI_COMMIT_SHA: sha40("3") }, tmpCwd).err, /does not match this run/);
+    planOf([img], { commit: sha40("9") });
+    assert.match(runRunner("wp-push", env, tmpCwd).err, /does not match this run|points at/);
+    planOf([{ ...img, name: "opt2-tealbrick-portal-core-server", tar: "opt2-tealbrick-portal-core-server.tar" }]);
+    assert.match(runRunner("wp-push", env, tmpCwd).err, /does not belong to/);
+    planOf([{ ...img, tar: "../../etc/passwd" }]);
+    assert.match(runRunner("wp-push", env, tmpCwd).err, /unexpected plan entry/);
+    planOf([img]);
+    assert.match(runRunner("wp-push", env, tmpCwd).err, /did not write a regular file/);
+    // labels of the tarball: wrong commit -> refused before any download or login
+    makeImageTar(out, name, { "org.opencontainers.image.revision": sha40("4"), "org.opencontainers.image.source": `https://github.com/Tealbrick/${bridge}` });
+    const bad = runRunner("wp-push", env, tmpCwd);
+    assert.notEqual(bad.code, 0);
+    assert.match(bad.err, /revision label .* != .*\(nothing was pushed\)/);
+    assert.ok(!existsSync(join(out, `${name}.digest`)));
+    // a symlink instead of a file is refused too
+    rmSync(join(out, `${name}.tar`));
+    execFileSync("ln", ["-s", "/etc/hosts", join(out, `${name}.tar`)]);
+    assert.match(runRunner("wp-push", env, tmpCwd).err, /did not write a regular file/);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+    rmSync(tmpCwd, { recursive: true, force: true });
+  }
+});
+
+test("ci-v9.11 C232: woodpecker-activate keeps tb_ghcr_token (and the bridge's tb_release_token) with events tag+manual and no image filter", () => {
+  const src = readFileSync(new URL("../ops/woodpecker-activate.ts", import.meta.url), "utf8");
+  const keep = src.slice(src.indexOf("const KEEP: Keep[] = ["), src.indexOf("];", src.indexOf("const KEEP: Keep[] = [")));
+  assert.ok(keep.includes('{ repo: "opt2-tealbrick-bridge", name: "tb_ghcr_token", events: ["manual", "tag"] }'));
+  assert.ok(keep.includes('{ repo: "opt2-tealbrick-bridge", name: "tb_release_token", events: ["manual", "tag"] }'), "the bridge publish secret is kept too");
+  assert.ok(keep.includes('{ repo: "opt2-tealbrick-cli", name: "tb_release_token", events: ["manual", "tag"] }'), "the cli entry is unchanged");
+  assert.ok(keep.includes(WP_GHCR_SECRET));
+  // the loop keeps listed names, warns on a wrong event filter or an image filter, and never reads or sends a value
+  assert.ok(src.includes("(sec.images ?? []).length === 0"), "no plugin/image filter");
+  assert.ok(src.includes("if (keep.some((k) => k.name === sec.name)) continue;"), "a kept secret is never deleted");
+  assert.ok(!/sec\.value|\.value\b/.test(src.slice(src.indexOf("for (const k of keep)"), src.indexOf("for (const w of want)"))), "the value is never read");
+  // every other secret is still deleted
+  assert.ok(src.includes('"deleted (not needed here)"') || src.includes("deleted (not needed here)"));
+});
+
+// ---------- ci-v9.14 (C262): OSV vulnerability scan ----------
+
+const OSV_DIGEST = /^ghcr\.io\/google\/osv-scanner:v2\.6\.0@sha256:[0-9a-f]{64}$/;
+
+/** One vulnerability in the shape osv-scanner v2.6.0 writes (`--format json`; read from a real run on lodash/minimist/semver). */
+interface OsvFix {
+  id: string;
+  pkg?: string;
+  version?: string;
+  score?: string; // group max_severity
+  label?: string; // database_specific.severity
+  aliases?: string[];
+  fixed?: string[];
+}
+function osvReport(fixes: OsvFix[], source = "/w/pnpm-lock.yaml"): unknown {
+  const byPkg = new Map<string, OsvFix[]>();
+  for (const f of fixes)
+    byPkg.set(`${f.pkg ?? "left-pad"}@${f.version ?? "1.0.0"}`, [...(byPkg.get(`${f.pkg ?? "left-pad"}@${f.version ?? "1.0.0"}`) ?? []), f]);
+  return {
+    results: [
+      {
+        source: { path: source, type: "lockfile" },
+        packages: [...byPkg].map(([key, vs]) => {
+          const [name, version] = key.split("@") as [string, string];
+          return {
+            package: { name, version, ecosystem: "npm" },
+            groups: vs.map((f) => ({ ids: [f.id], aliases: [...(f.aliases ?? []), f.id], ...(f.score === undefined ? {} : { max_severity: f.score }) })),
+            vulnerabilities: vs.map((f) => ({
+              id: f.id,
+              aliases: f.aliases ?? [],
+              summary: "x",
+              severity: [{ type: "CVSS_V3", score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" }],
+              database_specific: f.label === undefined ? {} : { severity: f.label },
+              affected: [
+                {
+                  package: { name, ecosystem: "npm" },
+                  ranges: [{ type: "SEMVER", events: [{ introduced: "0" }, ...(f.fixed ?? []).map((x) => ({ fixed: x }))] }],
+                },
+              ],
+            })),
+          };
+        }),
+      },
+    ],
+    experimental_config: { licenses: { summary: false, allowlist: null } },
+  };
+}
+const TODAY = "2026-10-18";
+const plusDays = (n: number): string => new Date(Date.parse(`${TODAY}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+const verdictOf = (fixes: OsvFix[], ignores: unknown[] = []) => osvVerdict(parseOsvReport(osvReport(fixes)), parseOsvIgnore(ignores), TODAY);
+const ign = (id: string, expires: string, reason = "dev-only dependency, not reachable") => ({ id, reason, expires });
+
+test("ci-v9.14 osv-check: severity thresholds (HIGH >= 7.0, CRITICAL >= 9.0; MEDIUM and LOW print only; unknown counts as HIGH)", () => {
+  assert.equal(osvSeverityOf(9.0), "CRITICAL");
+  assert.equal(osvSeverityOf(8.9), "HIGH");
+  assert.equal(osvSeverityOf(7.0), "HIGH");
+  assert.equal(osvSeverityOf(6.9), "MEDIUM");
+  assert.equal(osvSeverityOf(4.0), "MEDIUM");
+  assert.equal(osvSeverityOf(3.9), "LOW");
+  assert.equal(osvSeverityOf(null), "UNKNOWN");
+  const high = verdictOf([{ id: "GHSA-aaaa-bbbb-cccc", score: "7.5", pkg: "semver", version: "5.7.1", fixed: ["5.7.2", "6.3.1", "7.5.2", "1.0.0"] }]);
+  assert.deepEqual(
+    high.blocking.map((f) => [f.id, f.severity, f.score]),
+    [["GHSA-aaaa-bbbb-cccc", "HIGH", 7.5]],
+  );
+  assert.deepEqual(high.blocking[0]?.fixed, ["5.7.2", "6.3.1", "7.5.2"], "only fixed versions above the installed one, ascending");
+  assert.equal(verdictOf([{ id: "GHSA-aaaa-bbbb-cccc", score: "9.8" }]).blocking[0]?.severity, "CRITICAL");
+  const mild = verdictOf([
+    { id: "GHSA-1111-1111-1111", score: "6.9" },
+    { id: "GHSA-2222-2222-2222", score: "2.0", label: "LOW" },
+  ]);
+  assert.equal(mild.blocking.length, 0, "MEDIUM and LOW do not fail");
+  assert.equal(mild.info.length, 2, "they are printed");
+  // the advisory label counts when it is higher than the score (fail closed); the score counts when the label is missing
+  assert.equal(verdictOf([{ id: "GHSA-aaaa-bbbb-cccc", score: "5.3", label: "HIGH" }]).blocking.length, 1);
+  assert.equal(verdictOf([{ id: "GHSA-aaaa-bbbb-cccc", label: "CRITICAL" }]).blocking[0]?.severity, "CRITICAL");
+  assert.equal(verdictOf([{ id: "GHSA-aaaa-bbbb-cccc", label: "MODERATE" }]).blocking.length, 0);
+});
+
+test("ci-v9.14 osv-check: unknown severity fails closed (no score, no label, or a 0.0 score without a label)", () => {
+  for (const f of [
+    { id: "GHSA-aaaa-bbbb-cccc" },
+    { id: "GHSA-aaaa-bbbb-cccc", score: "0.0" },
+    { id: "GHSA-aaaa-bbbb-cccc", score: "" },
+    { id: "GHSA-aaaa-bbbb-cccc", label: "WEIRD" },
+  ]) {
+    const v = verdictOf([f]);
+    assert.equal(v.blocking.length, 1, JSON.stringify(f));
+    assert.equal(v.blocking[0]?.severity, "UNKNOWN");
+  }
+  assert.match(osvTable(verdictOf([{ id: "GHSA-aaaa-bbbb-cccc" }])), /UNKNOWN \(counts as HIGH\)/);
+});
+
+test("ci-v9.14 osv-check: a report that is not in the osv-scanner shape is refused (a format change never reads as clean)", () => {
+  assert.throws(() => parseOsvReport(null), /must be an object/);
+  assert.throws(() => parseOsvReport({}), /"results" is missing/);
+  assert.throws(() => parseOsvReport({ results: [{ source: { path: "x" } }] }), /packages is missing/);
+  assert.throws(() => parseOsvReport({ results: [{ packages: [{ package: { name: "a" }, vulnerabilities: [] }] }] }), /name and version/);
+  assert.throws(() => parseOsvReport({ results: [{ packages: [{ package: { name: "a", version: "1.0.0" }, vulnerabilities: [{}] }] }] }), /has no id/);
+  assert.deepEqual(parseOsvReport({ results: [] }), [], "an empty result list is a clean scan");
+});
+
+test("ci-v9.14 osv-check: the table lists id, package@version, severity, fixed version; blocking rows first", () => {
+  const v = verdictOf([
+    { id: "GHSA-mmmm-mmmm-mmmm", score: "5.0", pkg: "b", version: "2.0.0" },
+    { id: "GHSA-cccc-cccc-cccc", score: "9.8", pkg: "minimist", version: "1.2.0", fixed: ["1.2.6"] },
+  ]);
+  const lines = osvTable(v).split("\n");
+  assert.match(lines[0] as string, /^ID +PACKAGE@VERSION +SEVERITY +FIXED IN +STATUS$/);
+  assert.match(lines[1] as string, /^GHSA-cccc-cccc-cccc +minimist@1\.2\.0 +CRITICAL 9\.8 +1\.2\.6 +FAIL$/);
+  assert.match(lines[2] as string, /^GHSA-mmmm-mmmm-mmmm +b@2\.0\.0 +MEDIUM 5\.0 +- +info$/);
+});
+
+test("ci-v9.14 osvIgnore: a valid entry covers a HIGH finding (by id or by alias, case-insensitive) and it is printed as ignored", () => {
+  const f = { id: "GHSA-aaaa-bbbb-cccc", score: "7.5", aliases: ["CVE-2026-1234"] };
+  for (const id of ["GHSA-aaaa-bbbb-cccc", "ghsa-AAAA-bbbb-cccc", "CVE-2026-1234"]) {
+    const v = verdictOf([f], [ign(id, plusDays(30))]);
+    assert.equal(v.blocking.length, 0, id);
+    assert.equal(v.ignored.length, 1);
+    assert.deepEqual(v.problems, []);
+    assert.deepEqual(v.stale, []);
+    assert.match(osvTable(v), /ignored until /);
+  }
+  assert.equal(verdictOf([f], [ign("GHSA-zzzz-zzzz-zzzz", plusDays(30))]).blocking.length, 1, "another id does not cover it");
+});
+
+test("ci-v9.14 osvIgnore: expired and more-than-90-days entries fail and do not cover the finding; the boundaries", () => {
+  const f = { id: "GHSA-aaaa-bbbb-cccc", score: "9.0" };
+  const expired = verdictOf([f], [ign("GHSA-aaaa-bbbb-cccc", plusDays(-1))]);
+  assert.equal(expired.problems.length, 1);
+  assert.match(expired.problems[0] as string, /expired on /);
+  assert.equal(expired.blocking.length, 1, "an expired entry no longer covers the finding");
+  assert.equal(osvIgnoreProblems([ign("GHSA-aaaa-bbbb-cccc", TODAY)], TODAY).length, 1, "expires is the first day it no longer applies");
+  assert.deepEqual(osvIgnoreProblems([ign("GHSA-aaaa-bbbb-cccc", plusDays(1))], TODAY), []);
+  assert.deepEqual(osvIgnoreProblems([ign("GHSA-aaaa-bbbb-cccc", plusDays(OSV_IGNORE_MAX_DAYS))], TODAY), [], "exactly 90 days is allowed");
+  const far = verdictOf([f], [ign("GHSA-aaaa-bbbb-cccc", plusDays(OSV_IGNORE_MAX_DAYS + 1))]);
+  assert.equal(far.problems.length, 1);
+  assert.match(far.problems[0] as string, /more than 90 days/);
+  assert.match(far.problems[0] as string, new RegExp(plusDays(OSV_IGNORE_MAX_DAYS)), "tells the latest allowed date");
+  assert.equal(far.blocking.length, 1);
+  // an expired entry for a finding that is gone still fails (the repo must clean it up or renew it)
+  assert.equal(verdictOf([], [ign("GHSA-aaaa-bbbb-cccc", plusDays(-5))]).problems.length, 1);
+});
+
+test("ci-v9.14 osvIgnore: an entry that matches nothing is stale (warning, not a failure); LOW/MEDIUM matches are not stale", () => {
+  const v = verdictOf([{ id: "GHSA-1111-1111-1111", score: "5.0" }], [ign("GHSA-zzzz-zzzz-zzzz", plusDays(30)), ign("GHSA-1111-1111-1111", plusDays(30))]);
+  assert.deepEqual(
+    v.stale.map((x) => x.id),
+    ["GHSA-zzzz-zzzz-zzzz"],
+  );
+  assert.deepEqual(v.problems, []);
+  assert.equal(v.blocking.length, 0);
+});
+
+test("ci-v9.14 osvIgnore: config parsing (shape only; unknown keys, short reasons, bad dates, duplicates refused) and the schema agrees", () => {
+  const base = { kind: "library", paths: ["."] };
+  assert.deepEqual(validateConfig(base, repo).osvIgnore, [], "absent = no ignores");
+  const ok = ign("GHSA-aaaa-bbbb-cccc", "2026-12-01");
+  assert.deepEqual(validateConfig({ ...base, osvIgnore: [ok] }, repo).osvIgnore, [ok]);
+  assert.throws(() => validateConfig({ ...base, osvIgnore: ok }, repo), /must be a list/);
+  assert.throws(() => parseOsvIgnore([{ ...ok, extra: 1 }]), /unknown field extra/);
+  assert.throws(() => parseOsvIgnore([{ id: ok.id, expires: ok.expires }]), /reason/);
+  assert.throws(() => parseOsvIgnore([{ ...ok, reason: "too short" }]), /at least 10/);
+  assert.throws(() => parseOsvIgnore([{ ...ok, reason: "          " }]), /at least 10/);
+  assert.throws(() => parseOsvIgnore([{ ...ok, id: "nonsense" }]), /vulnerability id/);
+  assert.throws(() => parseOsvIgnore([{ ...ok, expires: "2026-02-30" }]), /calendar date/);
+  assert.throws(() => parseOsvIgnore([{ ...ok, expires: "01.12.2026" }]), /calendar date/);
+  assert.throws(() => parseOsvIgnore([{ id: ok.id, reason: ok.reason }]), /calendar date/);
+  assert.throws(() => parseOsvIgnore([ok, { ...ok, id: "ghsa-aaaa-bbbb-cccc" }]), /twice/);
+  assert.throws(() => parseOsvIgnore("GHSA-aaaa-bbbb-cccc"), /must be a list/);
+  // the schema accepts and refuses the same things (no JSON Schema library here: check its constraints directly)
+  const schema = JSON.parse(readFileSync(new URL("./tealbrick-ci.schema.json", import.meta.url), "utf8")) as {
+    properties: Record<
+      string,
+      { items: { additionalProperties: boolean; required: string[]; properties: Record<string, { pattern?: string; minLength?: number }> } }
+    >;
+  };
+  const item = schema.properties.osvIgnore?.items;
+  assert.ok(item, "schema has osvIgnore");
+  assert.equal(item.additionalProperties, false, "unknown keys refused");
+  assert.deepEqual([...item.required].sort(), ["expires", "id", "reason"]);
+  const idRe = new RegExp(item.properties.id?.pattern as string);
+  const dayRe = new RegExp(item.properties.expires?.pattern as string);
+  assert.equal(item.properties.reason?.minLength, 10);
+  for (const id of ["GHSA-aaaa-bbbb-cccc", "CVE-2026-12345", "OSV-2026-123"]) assert.ok(idRe.test(id), id);
+  for (const id of ["nonsense", "", "GHSA-"]) assert.ok(!idRe.test(id), id);
+  assert.ok(dayRe.test("2026-12-01"));
+  for (const d of ["01.12.2026", "2026-1-1", "2026-12-01T00:00"]) assert.ok(!dayRe.test(d), d);
+});
+
+test("ci-v9.14 osvLockfiles: the pnpm or npm lockfile of each node path (setup writes the list for the osv-scan step)", () => {
+  const files = new Set(["package.json", "pnpm-lock.yaml", "chat/package.json", "chat/package-lock.json", "empty/package.json", "nolock/package.json"]);
+  const has = (r: string): boolean => files.has(r);
+  assert.deepEqual(osvLockfiles({ paths: ["."] }, has), ["pnpm-lock.yaml"]);
+  assert.deepEqual(osvLockfiles({ paths: [".", "chat", "./chat", "gone", "nolock"] }, has), ["pnpm-lock.yaml", "chat/package-lock.json"]);
+  assert.deepEqual(osvLockfiles({ paths: ["gone"] }, has), [], "no package.json = nothing to scan");
+  assert.equal(OSV_LOCKFILES_FILE, ".tb-ci/osv-lockfiles");
+  assert.equal(OSV_REPORT_FILE, ".tb-ci/osv.json");
+  assert.equal(OSV_CONFIG_FILE, ".tb-ci/osv-scanner.toml");
+});
+
+test("ci-v9.14 osvLockfiles: a lockfile that clearly lists no package is not scanned (osv-scanner exit 128); anything unclear is", () => {
+  const files: Record<string, string> = {
+    "package.json": "{}",
+    "pnpm-lock.yaml": "lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n",
+    "a/package.json": "{}",
+    "a/pnpm-lock.yaml":
+      "lockfileVersion: '9.0'\n\nimporters:\n  .:\n    dependencies:\n      x:\n        specifier: 1.0.0\n        version: 1.0.0\n\npackages:\n\n  x@1.0.0:\n    resolution: {integrity: sha512-x}\n",
+    "b/package.json": "{}",
+    "b/package-lock.json": JSON.stringify({ lockfileVersion: 3, packages: { "": { name: "b" } } }),
+    "c/package.json": "{}",
+    "c/package-lock.json": JSON.stringify({ lockfileVersion: 3, packages: { "": {}, "node_modules/x": { version: "1.0.0" } } }),
+    "d/package.json": "{}",
+    "d/package-lock.json": "{ not json",
+  };
+  const has = (r: string): boolean => r in files;
+  const read = (r: string): string => files[r] as string;
+  assert.deepEqual(osvLockfiles({ paths: [".", "a", "b", "c", "d"] }, has, read), ["a/pnpm-lock.yaml", "c/package-lock.json", "d/package-lock.json"]);
+  assert.deepEqual(osvLockfiles({ paths: ["."] }, has), ["pnpm-lock.yaml"], "without read: listed as before");
+  assert.equal(osvLockfileEmpty("pnpm-lock.yaml", "lockfileVersion: '9.0'\npackages: {}\n"), true);
+  assert.equal(osvLockfileEmpty("pnpm-lock.yaml", "lockfileVersion: '9.0'\npackages:\n  x@1.0.0: {}\n"), false);
+  assert.equal(osvLockfileEmpty("package-lock.json", JSON.stringify({ lockfileVersion: 1, dependencies: {} })), false, "v1 npm lockfile: not judged, scanned");
+  assert.equal(osvLockfileEmpty("package-lock.json", JSON.stringify({ lockfileVersion: 2, packages: { "": {} }, dependencies: { x: {} } })), false);
+  assert.equal(osvLockfileEmpty("yarn.lock", ""), false);
+  // re-review S2: only positive evidence counts as empty; every other layout of a lockfile WITH packages is scanned
+  const pkg = "  x@1.0.0:\n    resolution: {integrity: sha512-x}\n";
+  for (const text of [
+    `  lockfileVersion: '9.0'\n  packages:\n  ${pkg}`, // whole document indented
+    `lockfileVersion: '9.0'\n"packages":\n${pkg}`, // quoted key
+    `lockfileVersion: '9.0'\npackages :\n${pkg}`, // space before the colon
+    "{lockfileVersion: '9.0', packages: {x@1.0.0: {resolution: {integrity: sha512-x}}}}\n", // flow style
+    `lockfileVersion: '9.0'\r\npackages:\r\n${pkg.replace(/\n/g, "\r\n")}`, // CRLF
+    `lockfileVersion: '9.0'\npackages: # comment\n${pkg}`,
+    `lockfileVersion: '9.0'\npackages: {}\n---\npackages:\n${pkg}`, // a second document
+  ])
+    assert.equal(osvLockfileEmpty("pnpm-lock.yaml", text), false, JSON.stringify(text));
+  assert.equal(osvLockfileEmpty("pnpm-lock.yaml", "lockfileVersion: '9.0'\r\npackages: {} # none\r\n"), true, "CRLF + comment, positive evidence");
+});
+
+test("ci-v9.15: the broken ci-v9.14 template is denied in setup and in the template audit, whatever MIN_TEMPLATE says", () => {
+  assert.ok(DENIED_TEMPLATES["ci-v9.14"], "ci-v9.14 is denied");
+  assert.equal(auditVerdict("opt2-tealbrick-sdk", 200, "anonymous", "ci-v9.14", "ci-v9.9"), "FAIL");
+  assert.equal(auditVerdict("opt2-tealbrick-sdk", 200, "anonymous", "ci-v9.15", "ci-v9.9"), "OK");
+  assert.equal(auditVerdict("opt2-tealbrick-sdk", 200, "anonymous", "ci-v9.13", "ci-v9.9"), "OK");
+  const src = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
+  assert.match(src, /if \(DENIED_TEMPLATES\[ref\]\) fail\(/, "setup refuses a denied template");
+  const tpl = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
+  assert.ok(!DENIED_TEMPLATES[/TB_CI_REF: (\S+)/.exec(tpl)?.[1] ?? ""], "the current template is not denied");
+});
+
+test("ci-v9.15 templates are valid YAML for Woodpecker: no unquoted list item contains ': ' or ' #' (ci-v9.14 broke on that)", () => {
+  for (const f of ["woodpecker/ci.yaml", "woodpecker/release.yaml"]) {
+    const lines = readFileSync(new URL(`./${f}`, import.meta.url), "utf8").split("\n");
+    lines.forEach((l, i) => {
+      const m = /^\s*- (.*)$/.exec(l);
+      if (!m) return;
+      const v = m[1] as string;
+      if (/^['"[{&*]/.test(v)) return; // quoted or flow scalar, anchor or alias
+      if (/^[A-Za-z_][\w-]*:( |$)/.test(v)) return; // a map item such as "- name: x"
+      assert.ok(
+        !v.includes(": ") && !v.includes(" #") && !v.endsWith(":"),
+        `${f}:${i + 1}: a plain YAML scalar cannot hold ': ' or ' #' (quote the item): ${v}`,
+      );
+    });
+  }
+});
+
+test("ci-v9.14 template: osv-scan after setup beside install, image pinned by digest, no secret; osv-check judges the report; pre-release waits", () => {
+  const tpl = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
+  const g = templateGraph(tpl);
+  assert.deepEqual(g.get("osv-scan")?.deps, ["setup"], "needs the runner's lockfile list from setup");
+  assert.deepEqual(g.get("install")?.deps, ["setup"], "runs beside install");
+  assert.deepEqual(g.get("osv-check")?.deps, ["osv-scan"]);
+  assert.deepEqual(g.get("pre-release")?.deps, ["gen", "osv-check"]);
+  for (const name of ["osv-scan", "osv-check"]) {
+    const block = tpl.slice(tpl.indexOf(`- name: ${name}\n`)).split("\n\n")[0] as string;
+    assert.doesNotMatch(block, /from_secret/, `${name}: holds no secret`);
+    assert.doesNotMatch(block, /TOKEN|PASSWORD|SECRET/i, `${name}: no credential variable`);
+    assert.doesNotMatch(block, /detach:/);
+  }
+  const scan = tpl.slice(tpl.indexOf("- name: osv-scan\n")).split("\n\n")[0] as string;
+  const image = /image: (\S+)/.exec(scan)?.[1] ?? "";
+  assert.match(image, OSV_DIGEST, "osv-scanner v2.6.0 (not v2.7.0, too new) pinned by digest");
+  assert.doesNotMatch(scan, /environment:/, "the scan step gets no environment at all");
+  const script = stepScript(tpl, "osv-scan");
+  assert.match(script, /\/osv-scanner scan source /);
+  assert.ok(script.includes("--format json --output-file .tb-ci/osv.json"));
+  assert.ok(script.includes(OSV_LOCKFILES_FILE), "scans the lockfiles setup listed");
+  assert.ok(script.includes('-L "./$f"'));
+  // review S2: osv-scanner reads osv-scanner.toml next to a lockfile by default; a repo file would bypass osvIgnore's policy
+  assert.ok(script.includes(`--config ${OSV_CONFIG_FILE}`), "the scan passes the template-owned config");
+  assert.ok(
+    script.indexOf(`> ${OSV_CONFIG_FILE}`) >= 0 && script.indexOf(`> ${OSV_CONFIG_FILE}`) < script.indexOf("/osv-scanner scan"),
+    "the step writes that config itself, before the scan",
+  );
+  assert.doesNotMatch(script, /IgnoredVulns|ignoreUntil/, "the template config ignores nothing");
+  assert.match(
+    script,
+    /"\$rc" -ne 0 \] && \[ "\$rc" -ne 1 \]; then .*exit 1/,
+    "only exit 0 (clean) and 1 (vulnerabilities found) pass; osv.dev unreachable is exit 127",
+  );
+  assert.match(script, /osv\.dev unreachable/);
+  assert.equal(stepScript(tpl, "osv-check"), "node .tb-ci/tb-ci.ts osv-check .tb-ci/osv.json");
+  // the id and the runner hash are the same in every generated file
+  for (const f of ["woodpecker/ci.yaml", "woodpecker/release.yaml", "github/opt2-release.yml"])
+    assert.match(readFileSync(new URL(`./${f}`, import.meta.url), "utf8"), /ci-v9\.16/, f);
+  assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
+  const readme = readFileSync(new URL("./README.md", import.meta.url), "utf8");
+  assert.match(readme, /^ci-v9\.14 \(C262\)/m, "template history entry");
+  assert.ok(readme.includes(image), "the README names the same pinned image");
+});
+
+/** Runs `tb-ci osv-check` in a throw-away repo with a lockfile, the config and a report. No network. */
+function runOsvCheck(report: unknown | null, config: Record<string, unknown>, lock = true): { code: number; out: string } {
+  const dir = mkdtempSync(join(tmpdir(), "tb-osv-"));
+  try {
+    writeFileSync(join(dir, "tealbrick-ci.json"), JSON.stringify(config));
+    writeFileSync(join(dir, "package.json"), "{}");
+    if (lock) writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n\npackages:\n\n  x@1.0.0:\n    resolution: {integrity: sha512-x}\n");
+    mkdirSync(join(dir, ".tb-ci"));
+    if (report !== null) writeFileSync(join(dir, OSV_REPORT_FILE), typeof report === "string" ? report : JSON.stringify(report));
+    const env: NodeJS.ProcessEnv = { ...process.env, CI_WORKSPACE: dir, CI_REPO_NAME: repo };
+    try {
+      const out = execFileSync(process.execPath, [new URL("./tb-ci.ts", import.meta.url).pathname, "osv-check", OSV_REPORT_FILE], {
+        env,
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+      return { code: 0, out };
+    } catch (e) {
+      const err = e as { status?: number; stdout?: string; stderr?: string };
+      return { code: err.status ?? 1, out: `${err.stdout ?? ""}${err.stderr ?? ""}` };
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("ci-v9.14 osv-check command: HIGH and CRITICAL fail, MEDIUM passes, unknown fails, a valid ignore passes", () => {
+  const cfg = { kind: "library" };
+  const today = new Date().toISOString().slice(0, 10);
+  const inDays = (n: number): string => new Date(Date.parse(`${today}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+  const clean = runOsvCheck({ results: [] }, cfg);
+  assert.equal(clean.code, 0, clean.out);
+  const high = runOsvCheck(osvReport([{ id: "GHSA-aaaa-bbbb-cccc", score: "7.2", pkg: "lodash", version: "4.17.15", fixed: ["4.17.21"] }]), cfg);
+  assert.equal(high.code, 1);
+  assert.match(high.out, /GHSA-aaaa-bbbb-cccc +lodash@4\.17\.15 +HIGH 7\.2 +4\.17\.21 +FAIL/);
+  assert.equal(runOsvCheck(osvReport([{ id: "GHSA-aaaa-bbbb-cccc", score: "9.8" }]), cfg).code, 1);
+  const mid = runOsvCheck(osvReport([{ id: "GHSA-aaaa-bbbb-cccc", score: "5.3" }]), cfg);
+  assert.equal(mid.code, 0, mid.out);
+  assert.match(mid.out, /MEDIUM 5\.3/);
+  assert.equal(runOsvCheck(osvReport([{ id: "GHSA-aaaa-bbbb-cccc" }]), cfg).code, 1, "unknown severity");
+  const high1 = osvReport([{ id: "GHSA-aaaa-bbbb-cccc", score: "8.0" }]);
+  const ignored = runOsvCheck(high1, { ...cfg, osvIgnore: [ign("GHSA-aaaa-bbbb-cccc", inDays(30))] });
+  assert.equal(ignored.code, 0, ignored.out);
+  assert.match(ignored.out, /ignored until /);
+  const expired = runOsvCheck(high1, { ...cfg, osvIgnore: [ign("GHSA-aaaa-bbbb-cccc", inDays(-1))] });
+  assert.equal(expired.code, 1);
+  assert.match(expired.out, /expired on /);
+  const far = runOsvCheck(high1, { ...cfg, osvIgnore: [ign("GHSA-aaaa-bbbb-cccc", inDays(91))] });
+  assert.equal(far.code, 1);
+  assert.match(far.out, /more than 90 days/);
+  const stale = runOsvCheck({ results: [] }, { ...cfg, osvIgnore: [ign("GHSA-zzzz-zzzz-zzzz", inDays(30))] });
+  assert.equal(stale.code, 0, stale.out);
+  assert.match(stale.out, /WARNING: osvIgnore GHSA-zzzz-zzzz-zzzz matches no vulnerability/);
+  const unknownKey = runOsvCheck({ results: [] }, { ...cfg, osvIgnore: [{ ...ign("GHSA-aaaa-bbbb-cccc", inDays(30)), note: "x" }] });
+  assert.equal(unknownKey.code, 1);
+  assert.match(unknownKey.out, /unknown field note/);
+});
+
+test("ci-v9.14 osv-check command: fails closed on a missing, empty or foreign report; a repo without a node lockfile has nothing to scan", () => {
+  const cfg = { kind: "library" };
+  const missing = runOsvCheck(null, cfg);
+  assert.equal(missing.code, 1);
+  assert.match(missing.out, /did not write its report/);
+  assert.equal(runOsvCheck("", cfg).code, 1, "empty file");
+  assert.equal(runOsvCheck("not json", cfg).code, 1);
+  assert.equal(runOsvCheck({ error: "boom" }, cfg).code, 1, "no results list");
+  const none = runOsvCheck(null, cfg, false);
+  assert.equal(none.code, 0, none.out);
+  assert.match(none.out, /nothing was scanned/);
 });

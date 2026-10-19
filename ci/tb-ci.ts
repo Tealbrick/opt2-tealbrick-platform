@@ -6,6 +6,8 @@
 //   run <script>                run a standard script per project path (typecheck|lint|test|conformance|build)
 //   gen                         BSA-03: committed gen/ not stale, `gen` script produces every tb-gen kind, tb-gen check passes
 //   pre-release                 ci-v9.6: run tealbrick-ci.json preReleaseChecks (repo scripts) on every pipeline; gh-build runs them again on the tag
+//   osv-check <report.json>     ci-v9.14 (C262): judge the osv-scanner JSON report of the osv-scan step; fails on HIGH/CRITICAL/unknown
+//                               severity not covered by a valid osvIgnore entry (reason + expiry, at most 90 days)
 //   audit-templates             (platform cron) every opt2 repo's template ref >= ci/MIN_TEMPLATE
 //   plan-images                 write .tb-ci/images.sh for the kaniko steps
 //   release-record              (tag v*) validate + print the release; no token, no key (C62); the platform signer indexes it
@@ -15,6 +17,8 @@
 //   gh-build / gh-publish       (C72, GitHub Actions) build without a write token / push images + attach assets, no repo code
 //   wp-build / wp-publish       (C222, Woodpecker .woodpecker/release.yaml) the same split for private repos: build with no
 //                               token / attach assets with the repo secret tb_release_token, no repo code, never replace an asset
+//   wp-push                     (C232, ci-v9.11) push the kaniko image tarballs to ghcr with the repo secret tb_ghcr_token (crane,
+//                               hash-checked), no repo code, never overwrite a tag that points to another digest
 //   registry-add-desktop ...    (TBD release, on the Mac) add a desktop entry to the signed release index (GitHub asset URL or a platform dist host)
 //   registry-sign               re-sign the index (offers changed, or before the envelope expires)
 //   registry-add-source ...     (C29 interim) dev entry built from source at a pushed commit
@@ -23,11 +27,24 @@
 // Crypto and canonical JSON come ONLY from @opt2-tealbrick/manifest (CORE §3: one owner of primitives),
 // loaded at run time from its GitHub release tarball (TB_MANIFEST_PKG) for the registry commands.
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash, createPrivateKey, createPublicKey, randomBytes } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createConnection } from "node:net";
-import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
 
@@ -112,6 +129,8 @@ export const OPT2_REPOS = [
   "fleet",
   "evolution",
   "cli",
+  "observer", // C258a (ci-v9.13): public since 2026-10-18 (Martin yes, C249); was activated privately before its first release
+  "live-artifacts", // C249 (ci-v9.15): public since its flip (Coordinator); was activated privately before its first release
 ].map((n) => `opt2-tealbrick-${n}`);
 /** Repos in OPT2_REPOS whose GitHub repo does not exist yet. The template audit and registry-sync skip a 404 for these and ONLY
  *  these; a 404 for any other repo stays an alarm. Empty since 2026-10-15: opt2-tealbrick-cli exists (private, C173/C177). */
@@ -134,7 +153,7 @@ export const PRIVATE_REPOS: readonly string[] = [
   "opt2-tealbrick-packages",
   "opt2-tealbrick-tbd",
   "opt2-tealbrick-qa",
-  "opt2-tealbrick-fleet",
+  // C249 (ci-v9.12, Martin yes 2026-10-18): opt2-tealbrick-fleet (Governance) is public again and is read without the token.
 ];
 /** ci-v9.6 (C154/C157): public download hosts for the release assets of private repos. A repo opts in with `distBaseUrl` in
  *  tealbrick-ci.json (or TB_DIST_BASE_URL); only these bases are accepted, so a config can never point dependencies at another host.
@@ -172,6 +191,7 @@ export interface CiConfig {
   preReleaseChecks: string[]; // ci-v9.6: repo-relative .ts scripts the pipeline runs before a release can be tagged
   packScripts: Record<string, string>; // ci-v9.7: package dir -> repo-relative .ts that builds that package's release tarball
   releaseOn: ReleaseOn; // ci-v9.10 (C222): who publishes releases: GitHub Actions (public repos) or Woodpecker (private repos)
+  osvIgnore: OsvIgnore[]; // ci-v9.14 (C262): vulnerabilities accepted for a limited time (reason + expiry <= 90 days), see osv-check
 }
 /** ci-v9.10 (C222): "actions" = .github/workflows/opt2-release.yml (free only in public repos); "woodpecker" = .woodpecker/release.yaml. */
 export type ReleaseOn = "actions" | "woodpecker";
@@ -335,6 +355,12 @@ export function belowMinimum(ref: string, min: string): boolean {
   return !a || a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]);
 }
 
+/** ci-v9.15: template tags that are broken and must never be (re)adopted, whatever MIN_TEMPLATE says. Tags are never moved, so a
+ *  broken tag stays and is refused here. ci-v9.14: the osv-scan printf line is not a YAML string (Woodpecker compiler error). */
+export const DENIED_TEMPLATES: Readonly<Record<string, string>> = {
+  "ci-v9.14": "does not parse in Woodpecker (osv-scan printf line is a YAML map); adopt ci-v9.15 or later",
+};
+
 function fail(msg: string): never {
   console.error(`tb-ci: FAIL: ${msg}`);
   process.exit(1);
@@ -352,9 +378,10 @@ export function channelForVersion(version: string): Channel {
 
 /** ci-v9.4: products the signer indexes ONLY on channel "dev" (test fixtures; never offered to stable workspaces).
  *  The one list: releaseChannel() and mergeIndex() both read it. */
-/** C208: fleet is not shipped and its repo goes private (its manifestUrl 404s for Core), so it is dev-only: never offered to a
- *  stable workspace (live has no dev workspaces). Its releases stay in the signed index (re-classified, nothing deleted). */
-export const DEV_ONLY_PRODUCTS: readonly string[] = ["sample-gate", "sample-caller", "sample-pay", "sample-mismatch", "fleet"];
+/** C208 made fleet dev-only; C278 (Martin, 2026-10-19) makes Governance (fleet) a stable app again (its repo is public, C249), so
+ *  it leaves this list. Its dev records indexed meanwhile keep their devOnly flag (signed records are never rewritten,
+ *  PROMOTE-STABLE §5); promotion reads THIS list, not the record flag (promotionReleases). */
+export const DEV_ONLY_PRODUCTS: readonly string[] = ["sample-gate", "sample-caller", "sample-pay", "sample-mismatch"];
 
 export function isDevOnlyProduct(product: string): boolean {
   return DEV_ONLY_PRODUCTS.includes(product);
@@ -578,7 +605,9 @@ export function promotionReleases(
       problems.push(`${where}: ${p.devReleaseId} must be a dev record with an image`);
       continue;
     }
-    if (dev.devOnly || isDevOnlyProduct(dev.product)) {
+    // C278: the CURRENT product list decides, not the record flag: a product that left DEV_ONLY_PRODUCTS keeps devOnly on its
+    // older signed dev records (never rewritten), and the stable copy below drops the flag
+    if (isDevOnlyProduct(dev.product)) {
       problems.push(`${where}: ${dev.product} is dev-only (C113)`);
       continue;
     }
@@ -729,7 +758,19 @@ export function versionFromTag(tag: string): string {
 export function validateConfig(raw: unknown, repoName: string): CiConfig {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error("tealbrick-ci.json must be an object");
   const o = raw as Record<string, unknown>;
-  const allowed = new Set(["$schema", "kind", "paths", "conformance", "images", "postgres", "distBaseUrl", "preReleaseChecks", "packScripts", "releaseOn"]);
+  const allowed = new Set([
+    "$schema",
+    "kind",
+    "paths",
+    "conformance",
+    "images",
+    "postgres",
+    "distBaseUrl",
+    "preReleaseChecks",
+    "packScripts",
+    "releaseOn",
+    "osvIgnore",
+  ]);
   for (const k of Object.keys(o)) if (!allowed.has(k)) throw new Error(`unknown field ${k}`);
   if (!KINDS.includes(o.kind as Kind)) throw new Error(`kind must be one of ${KINDS.join(", ")}`);
   const kind = o.kind as Kind;
@@ -743,6 +784,7 @@ export function validateConfig(raw: unknown, repoName: string): CiConfig {
   const distBaseUrl = o.distBaseUrl === undefined ? null : normalizeDistBase(o.distBaseUrl, "distBaseUrl");
   const preReleaseChecks = parsePreReleaseChecks(o.preReleaseChecks);
   const packScripts = parsePackScripts(o.packScripts);
+  const osvIgnore = parseOsvIgnore(o.osvIgnore);
   const releaseOn = o.releaseOn === undefined ? "actions" : o.releaseOn;
   if (releaseOn !== "actions" && releaseOn !== "woodpecker") throw new Error('releaseOn must be "actions" or "woodpecker"');
   const imagesRaw = o.images === undefined ? [] : o.images;
@@ -790,11 +832,8 @@ export function validateConfig(raw: unknown, repoName: string): CiConfig {
     if (images.filter((x) => x.kind === "service" && x.product === im.product && x.service === im.service).length > 1)
       throw new Error(`service ${im.product}/${im.service} declared twice`);
   }
-  if (releaseOn === "woodpecker" && images.length > 0)
-    throw new Error(
-      'releaseOn "woodpecker" publishes package tarballs only in ci-v9.10; images still need the Actions release (GHCR credential, C222 follow-up)',
-    );
-  return { kind, paths, conformance, images, postgres, distBaseUrl, preReleaseChecks, packScripts, releaseOn };
+  // ci-v9.11 (C232): images are allowed with releaseOn "woodpecker" (kaniko --no-push + crane push, secret tb_ghcr_token)
+  return { kind, paths, conformance, images, postgres, distBaseUrl, preReleaseChecks, packScripts, releaseOn, osvIgnore };
 }
 
 function safeRel(p: string): boolean {
@@ -1951,6 +1990,7 @@ async function cmdSetup(): Promise<void> {
   log(`template ${ref}: identical`);
   const min = (await fetchText(`https://raw.githubusercontent.com/${OWNER}/${PLATFORM_REPO}/main/${MIN_TEMPLATE_PATH}`)).trim();
   if (belowMinimum(ref, min)) fail(`template ${ref} is below the enforced minimum ${min} (C56 D1): run adopt from the platform repo`);
+  if (DENIED_TEMPLATES[ref]) fail(`template ${ref} is denied: ${DENIED_TEMPLATES[ref]}`);
   log(`template ${ref} >= minimum ${min}`);
   if (existsSync(join(root, ".woodpecker/secret-scan.yaml"))) fail(".woodpecker/secret-scan.yaml duplicates the template's secret-scan step; delete it");
   {
@@ -1979,6 +2019,18 @@ async function cmdSetup(): Promise<void> {
   if (cfg.postgres) writeFileSync(join(root, PG_MARKER), "requested by tealbrick-ci.json\n");
   else rmSync(join(root, PG_MARKER), { force: true });
   rmSync(join(root, PG_DONE_MARKER), { force: true }); // ci-v9.2: never inherit a stale "unit finished" marker
+  // ci-v9.14 (C262): the osv-scan step (osv-scanner image, no node) scans exactly the lockfiles listed here; osv-check judges the report
+  writeFileSync(
+    join(root, OSV_LOCKFILES_FILE),
+    osvLockfiles(
+      cfg,
+      (rel) => existsSync(join(root, rel)),
+      (rel) => readFileSync(join(root, rel), "utf8"),
+    )
+      .map((l) => `${l}\n`)
+      .join(""),
+  );
+  rmSync(join(root, OSV_REPORT_FILE), { force: true });
   const errors: string[] = [];
   const urls: string[] = [];
   for (const p of cfg.paths) {
@@ -2187,6 +2239,329 @@ function cmdPreRelease(): void {
   runPreReleaseChecks(loadConfig(root), root);
 }
 
+// ---------- ci-v9.14 (C262): OSV vulnerability scan ----------
+// Two template steps, both without a secret: `osv-scan` (osv-scanner image, pinned by digest) scans the lockfiles that `setup` listed
+// in OSV_LOCKFILES_FILE and writes OSV_REPORT_FILE; `osv-check` (node image, this runner) judges the report. osv-scanner asks
+// osv.dev (no credentials). Fail closed: an unreachable osv.dev, a missing or unreadable report, a vulnerability with unknown
+// severity and an out-of-policy ignore entry all fail the pipeline.
+
+/** Written by `setup`: one repo-relative lockfile per line (empty file = nothing to scan). Read by the osv-scan step's shell. */
+export const OSV_LOCKFILES_FILE = ".tb-ci/osv-lockfiles";
+/** Written by the osv-scan step itself (never by the repo) and passed as `--config`: osv-scanner then reads NO repo-owned
+ *  osv-scanner.toml (its default looks next to each lockfile and in parent folders), so an exception exists only as a policy-checked
+ *  tealbrick-ci.json osvIgnore entry. */
+export const OSV_CONFIG_FILE = ".tb-ci/osv-scanner.toml";
+/** Written by the osv-scan step (osv-scanner `--format json`), read by `osv-check`. */
+export const OSV_REPORT_FILE = ".tb-ci/osv.json";
+/** CVSS base score thresholds (FIRST): HIGH 7.0-8.9, CRITICAL 9.0-10.0. A finding at or above OSV_HIGH fails the check. */
+export const OSV_HIGH = 7.0;
+export const OSV_CRITICAL = 9.0;
+/** An osvIgnore entry may run at most this many days from the day the check runs (it must be renewed, with a new reason review). */
+export const OSV_IGNORE_MAX_DAYS = 90;
+
+/** `osvIgnore` in tealbrick-ci.json: a vulnerability a repo accepts for a limited time. `expires` is the first day the entry no longer applies. */
+export interface OsvIgnore {
+  id: string; // GHSA-, CVE- or OSV id; matches the finding's id or any of its aliases (case-insensitive)
+  reason: string; // why the repo accepts it (>= 10 characters)
+  expires: string; // YYYY-MM-DD (UTC): after the run date, and at most OSV_IGNORE_MAX_DAYS days after it
+}
+
+/** Shape check only (the date window depends on the run date and is judged by `osv-check`, see osvIgnoreProblems). */
+export function parseOsvIgnore(raw: unknown): OsvIgnore[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) throw new Error('osvIgnore must be a list of { "id", "reason", "expires" }');
+  if (raw.length > 50) throw new Error("osvIgnore: at most 50 entries");
+  const seen = new Set<string>();
+  return raw.map((e, i): OsvIgnore => {
+    if (typeof e !== "object" || e === null || Array.isArray(e)) throw new Error(`osvIgnore[${i}] must be an object`);
+    const r = e as Record<string, unknown>;
+    for (const k of Object.keys(r)) if (!["id", "reason", "expires"].includes(k)) throw new Error(`osvIgnore[${i}]: unknown field ${k}`);
+    const { id, reason, expires } = r;
+    if (typeof id !== "string" || !/^[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9._:-]{1,80}$/.test(id))
+      throw new Error(`osvIgnore[${i}].id must be a vulnerability id such as GHSA-xxxx-xxxx-xxxx or CVE-2026-12345, got ${JSON.stringify(id)}`);
+    if (typeof reason !== "string" || reason.trim().length < 10) throw new Error(`osvIgnore[${i}].reason must say why in at least 10 characters`);
+    if (typeof expires !== "string" || osvDay(expires) === null)
+      throw new Error(`osvIgnore[${i}].expires must be a calendar date YYYY-MM-DD, got ${JSON.stringify(expires)}`);
+    if (seen.has(id.toUpperCase())) throw new Error(`osvIgnore lists ${id} twice`);
+    seen.add(id.toUpperCase());
+    return { id, reason: reason.trim(), expires };
+  });
+}
+
+/** Whole days since 1970-01-01 (UTC) of a YYYY-MM-DD calendar date; null when it is not a real date. */
+function osvDay(s: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const t = Date.parse(`${s}T00:00:00Z`);
+  if (!Number.isFinite(t) || new Date(t).toISOString().slice(0, 10) !== s) return null;
+  return t / 86_400_000;
+}
+
+/** Entries that are out of policy on the run date `today` (YYYY-MM-DD, UTC): expired, or expiring more than OSV_IGNORE_MAX_DAYS ahead. */
+export function osvIgnoreProblems(ignores: OsvIgnore[], today: string): string[] {
+  const t = osvDay(today);
+  if (t === null) throw new Error(`osvIgnoreProblems: bad run date ${today}`);
+  const out: string[] = [];
+  for (const ig of ignores) {
+    const e = osvDay(ig.expires) as number;
+    if (e <= t)
+      out.push(`osvIgnore ${ig.id}: expired on ${ig.expires} (today ${today}); fix the dependency, or renew the entry with a new date and a current reason`);
+    else if (e - t > OSV_IGNORE_MAX_DAYS)
+      out.push(
+        `osvIgnore ${ig.id}: expires ${ig.expires}, more than ${OSV_IGNORE_MAX_DAYS} days after today (${today}); the latest allowed date is ${osvDayString(t + OSV_IGNORE_MAX_DAYS)}`,
+      );
+  }
+  return out;
+}
+function osvDayString(day: number): string {
+  return new Date(day * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** The lockfiles osv-scan must scan: the pnpm or npm lockfile of every project path that has a package.json. Pure over `exists`
+ *  and `read`. A lockfile that CLEARLY lists no package (osvLockfileEmpty) is left out: it has nothing to scan and osv-scanner
+ *  exits 128 ("no packages found") on it, which the scan step treats as a failure. */
+export function osvLockfiles(cfg: { paths: string[] }, exists: (rel: string) => boolean, read?: (rel: string) => string): string[] {
+  const out: string[] = [];
+  for (const p of cfg.paths) {
+    const dir = posix.normalize(p);
+    const at = (f: string): string => (dir === "." ? f : `${dir}/${f}`);
+    if (!exists(at("package.json"))) continue;
+    const lock = ["pnpm-lock.yaml", "package-lock.json"].find((f) => exists(at(f)));
+    if (!lock || out.includes(at(lock))) continue;
+    if (read && osvLockfileEmpty(lock, read(at(lock)))) continue;
+    out.push(at(lock));
+  }
+  return out;
+}
+
+/** True only on POSITIVE evidence that the lockfile lists no package (fail closed: anything unclear is scanned). pnpm: the word
+ *  `packages` does not occur at all, or its ONLY occurrence is a top-level line `packages: {}` (any other layout — indented,
+ *  quoted, flow style — is scanned). npm (lockfileVersion >= 2): no `packages` entry other than the root "" and no
+ *  `dependencies`. An unreadable or unparsable lockfile is NOT empty (osv-scanner then fails on it). */
+export function osvLockfileEmpty(name: string, text: string): boolean {
+  if (name === "pnpm-lock.yaml") {
+    const n = text.match(/packages/g)?.length ?? 0;
+    if (n === 0) return true;
+    return n === 1 && /^packages:[ \t]*\{\}[ \t]*(#[^\r\n]*)?\r?$/m.test(text);
+  }
+  if (name === "package-lock.json") {
+    try {
+      const j = JSON.parse(text) as { lockfileVersion?: unknown; packages?: unknown; dependencies?: unknown };
+      if (typeof j.lockfileVersion !== "number" || j.lockfileVersion < 2) return false;
+      if (j.packages === null || typeof j.packages !== "object" || Array.isArray(j.packages)) return false;
+      const deps = j.dependencies;
+      if (deps !== undefined && (deps === null || typeof deps !== "object" || Object.keys(deps).length > 0)) return false;
+      return Object.keys(j.packages).every((k) => k === "");
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+export type OsvSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "UNKNOWN";
+export interface OsvFinding {
+  id: string;
+  ids: string[]; // the id, its aliases and the ids of its osv-scanner group (what an osvIgnore entry may name), upper-case
+  name: string;
+  version: string;
+  ecosystem: string;
+  source: string; // lockfile path as osv-scanner saw it
+  score: number | null; // CVSS base score, null when neither the report nor the advisory label gives one
+  severity: OsvSeverity; // UNKNOWN counts as HIGH (fail closed)
+  fixed: string[]; // fixed versions above the installed one, ascending
+}
+
+/** Score floor of an advisory's own severity label (GitHub: CRITICAL, HIGH, MODERATE, LOW; others: MEDIUM). */
+function osvLabelScore(label: unknown): number | null {
+  switch (typeof label === "string" ? label.trim().toUpperCase() : "") {
+    case "CRITICAL":
+      return OSV_CRITICAL;
+    case "HIGH":
+      return OSV_HIGH;
+    case "MODERATE":
+    case "MEDIUM":
+      return 4.0;
+    case "LOW":
+      return 0.1;
+    default:
+      return null;
+  }
+}
+export function osvSeverityOf(score: number | null): OsvSeverity {
+  if (score === null) return "UNKNOWN";
+  if (score >= OSV_CRITICAL) return "CRITICAL";
+  if (score >= OSV_HIGH) return "HIGH";
+  if (score >= 4.0) return "MEDIUM";
+  return "LOW";
+}
+/** Does this finding fail the check (before ignores)? HIGH, CRITICAL and UNKNOWN. */
+export function osvBlocks(sev: OsvSeverity): boolean {
+  return sev === "CRITICAL" || sev === "HIGH" || sev === "UNKNOWN";
+}
+
+function osvStrings(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+function osvObj(v: unknown, what: string): Record<string, unknown> {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) throw new Error(`osv report: ${what} must be an object`);
+  return v as Record<string, unknown>;
+}
+
+/** Reads an osv-scanner v2 `--format json` report: results[].packages[].vulnerabilities[] plus groups[] (ids, aliases, max_severity).
+ *  Severity per vulnerability = the larger of the group's `max_severity` (CVSS base score, highest over the aliases) and the floor
+ *  of the advisory's `database_specific.severity` label; neither present (or 0.0 and no label) = UNKNOWN. Throws on a report that is
+ *  not in this shape (fail closed: a format change must not read as "no vulnerabilities"). */
+export function parseOsvReport(raw: unknown): OsvFinding[] {
+  const root = osvObj(raw, "the report");
+  if (!Array.isArray(root.results)) throw new Error('osv report: "results" is missing (not an osv-scanner JSON report)');
+  const out = new Map<string, OsvFinding>();
+  for (const res of root.results) {
+    const r = osvObj(res, "results[]");
+    const source = typeof (r.source as { path?: unknown } | undefined)?.path === "string" ? (r.source as { path: string }).path : "?";
+    if (!Array.isArray(r.packages)) throw new Error("osv report: results[].packages is missing");
+    for (const pk of r.packages) {
+      const p = osvObj(pk, "packages[]");
+      const pkg = osvObj(p.package, "packages[].package");
+      if (typeof pkg.name !== "string" || typeof pkg.version !== "string") throw new Error("osv report: packages[].package needs name and version");
+      const ecosystem = typeof pkg.ecosystem === "string" ? pkg.ecosystem : "";
+      const groups = (Array.isArray(p.groups) ? p.groups : []).map((g) => osvObj(g, "groups[]"));
+      for (const vv of Array.isArray(p.vulnerabilities) ? p.vulnerabilities : []) {
+        const v = osvObj(vv, "vulnerabilities[]");
+        if (typeof v.id !== "string" || v.id === "") throw new Error(`osv report: a vulnerability of ${pkg.name}@${pkg.version} has no id`);
+        const group = groups.find((g) => osvStrings(g.ids).includes(v.id as string) || osvStrings(g.aliases).includes(v.id as string));
+        const groupScore = group && typeof group.max_severity === "string" ? Number.parseFloat(group.max_severity) : Number.NaN;
+        const parts: number[] = [];
+        if (Number.isFinite(groupScore) && groupScore > 0) parts.push(groupScore);
+        const label = osvLabelScore((v.database_specific as { severity?: unknown } | undefined)?.severity);
+        if (label !== null) parts.push(label);
+        const score = parts.length ? Math.max(...parts) : null;
+        const ids = [...new Set([v.id, ...osvStrings(v.aliases), ...osvStrings(group?.ids), ...osvStrings(group?.aliases)].map((x) => x.toUpperCase()))];
+        const key = `${v.id}|${pkg.name}|${pkg.version}|${ecosystem}`;
+        if (out.has(key)) continue; // the same package in two lockfiles is one finding
+        out.set(key, {
+          id: v.id,
+          ids,
+          name: pkg.name,
+          version: pkg.version,
+          ecosystem,
+          source,
+          score,
+          severity: osvSeverityOf(score),
+          fixed: osvFixedVersions(v.affected, pkg.name, ecosystem, pkg.version),
+        });
+      }
+    }
+  }
+  return [...out.values()];
+}
+
+/** Fixed versions (above the installed one) that the advisory names for this package, ascending. */
+function osvFixedVersions(affected: unknown, name: string, ecosystem: string, installed: string): string[] {
+  const fixed = new Set<string>();
+  for (const a of Array.isArray(affected) ? affected : []) {
+    const pk = (a as { package?: { name?: unknown; ecosystem?: unknown } }).package;
+    if (!pk || pk.name !== name || (ecosystem !== "" && pk.ecosystem !== ecosystem)) continue;
+    for (const rg of ((a as { ranges?: unknown }).ranges as unknown[] | undefined) ?? []) {
+      for (const ev of ((rg as { events?: unknown }).events as unknown[] | undefined) ?? []) {
+        const f = (ev as { fixed?: unknown }).fixed;
+        if (typeof f === "string" && (!/^\d+\.\d+\.\d+/.test(f) || osvCmp(f, installed) > 0)) fixed.add(f);
+      }
+    }
+  }
+  return [...fixed].sort(osvCmp);
+}
+function osvCmp(a: string, b: string): number {
+  const [x, y] = [semverCore(a), semverCore(b)];
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return (x[i] as number) - (y[i] as number);
+  return 0;
+}
+
+export interface OsvVerdict {
+  blocking: OsvFinding[]; // HIGH / CRITICAL / UNKNOWN with no valid ignore
+  ignored: { finding: OsvFinding; ignore: OsvIgnore }[];
+  info: OsvFinding[]; // LOW / MEDIUM, printed only
+  stale: OsvIgnore[]; // entries that match no finding
+  problems: string[]; // ignore entries out of policy (expired, > 90 days): these fail the check and do not apply
+}
+
+/** The decision of osv-check, pure. `today` is the run date (YYYY-MM-DD, UTC). */
+export function osvVerdict(findings: OsvFinding[], ignores: OsvIgnore[], today: string): OsvVerdict {
+  const problems = osvIgnoreProblems(ignores, today);
+  const badIds = new Set(ignores.filter((ig) => osvIgnoreProblems([ig], today).length > 0).map((ig) => ig.id));
+  const valid = ignores.filter((ig) => !badIds.has(ig.id));
+  const blocking: OsvFinding[] = [];
+  const ignored: OsvVerdict["ignored"] = [];
+  const info: OsvFinding[] = [];
+  const used = new Set<string>();
+  for (const f of findings) {
+    const hit = valid.find((ig) => f.ids.includes(ig.id.toUpperCase()));
+    if (osvBlocks(f.severity)) {
+      if (hit) {
+        ignored.push({ finding: f, ignore: hit });
+        used.add(hit.id);
+      } else blocking.push(f);
+    } else info.push(f);
+  }
+  // an entry is also in use when it names a LOW/MEDIUM finding, or one that an expired entry would have covered
+  for (const ig of ignores) if (findings.some((f) => f.ids.includes(ig.id.toUpperCase()))) used.add(ig.id);
+  return { blocking, ignored, info, stale: ignores.filter((ig) => !used.has(ig.id)), problems };
+}
+
+const OSV_RANK: Record<OsvSeverity, number> = { CRITICAL: 4, UNKNOWN: 3, HIGH: 3, MEDIUM: 2, LOW: 1 };
+/** The table osv-check prints: id, package@version, severity (with score), fixed version, status. */
+export function osvTable(v: OsvVerdict): string {
+  const rows: string[][] = [["ID", "PACKAGE@VERSION", "SEVERITY", "FIXED IN", "STATUS"]];
+  const sorted = (xs: OsvFinding[]): OsvFinding[] =>
+    [...xs].sort((a, b) => OSV_RANK[b.severity] - OSV_RANK[a.severity] || (b.score ?? 10) - (a.score ?? 10) || a.id.localeCompare(b.id));
+  const row = (f: OsvFinding, status: string): string[] => [
+    f.id,
+    `${f.name}@${f.version}`,
+    f.score === null ? "UNKNOWN (counts as HIGH)" : `${f.severity} ${f.score.toFixed(1)}`,
+    f.fixed.length ? f.fixed.join(", ") : "-",
+    status,
+  ];
+  for (const f of sorted(v.blocking)) rows.push(row(f, "FAIL"));
+  for (const { finding, ignore } of v.ignored) rows.push(row(finding, `ignored until ${ignore.expires}: ${ignore.reason}`));
+  for (const f of sorted(v.info)) rows.push(row(f, "info"));
+  const w = rows[0]?.map((_, i) => Math.max(...rows.map((r) => (r[i] as string).length))) ?? [];
+  return rows.map((r) => r.map((c, i) => (i === r.length - 1 ? c : c.padEnd(w[i] as number))).join("  ")).join("\n");
+}
+
+function cmdOsvCheck(args: string[]): void {
+  const file = args[0];
+  if (!file) fail("usage: osv-check <osv-scanner report.json>");
+  const root = repoRoot();
+  const cfg = loadConfig(root);
+  const today = new Date().toISOString().slice(0, 10);
+  const expected = osvLockfiles(
+    cfg,
+    (rel) => existsSync(join(root, rel)),
+    (rel) => readFileSync(join(root, rel), "utf8"),
+  );
+  let findings: OsvFinding[] = [];
+  if (expected.length === 0) log("osv-check: no node lockfile in this repo (no package.json under tealbrick-ci.json paths); nothing was scanned");
+  else {
+    if (!existsSync(resolve(root, file)))
+      fail(`osv-check: ${file} does not exist: the osv-scan step did not write its report (osv.dev unreachable?). Failing closed.`);
+    try {
+      findings = parseOsvReport(JSON.parse(readFileSync(resolve(root, file), "utf8")));
+    } catch (e) {
+      fail(`osv-check: cannot read ${file}: ${(e as Error).message}. Failing closed.`);
+    }
+    log(`osv-check: report ${file} for ${expected.join(", ")}: ${findings.length} vulnerability finding(s)`);
+  }
+  const v = osvVerdict(findings, cfg.osvIgnore, today);
+  if (findings.length) console.log(osvTable(v));
+  for (const ig of v.stale) log(`WARNING: osvIgnore ${ig.id} matches no vulnerability in this scan (stale); remove it`);
+  const problems = [...v.problems];
+  if (v.blocking.length)
+    problems.push(
+      `${v.blocking.length} HIGH/CRITICAL/unknown-severity vulnerabilit${v.blocking.length === 1 ? "y" : "ies"} (CVSS >= ${OSV_HIGH.toFixed(1)}; unknown counts as HIGH): update the dependency to the FIXED IN version, or accept it for a limited time with an osvIgnore entry in tealbrick-ci.json`,
+    );
+  if (problems.length) fail(`\n  - ${problems.join("\n  - ")}`);
+  log(`osv-check OK (${v.info.length} LOW/MEDIUM printed only, ${v.ignored.length} ignored)`);
+}
+
 /** gh-build: frozen, script-free install of every node path (checks may import the repo's dependencies). */
 function installAllPaths(cfg: CiConfig, root: string): void {
   for (const p of nodePaths(cfg, root)) {
@@ -2227,7 +2602,7 @@ async function cmdAuditTemplates(): Promise<void> {
     else log(`${verdict === "OK" ? "OK  " : "FAIL"} ${repo}: ${res.status === 200 ? ref : `HTTP ${res.status}`}`);
     if (verdict === "FAIL") bad.push(`${repo} (${res.status === 200 ? ref : `HTTP ${res.status}`})`);
   }
-  if (bad.length) fail(`below minimum ${min}: ${bad.join(", ")}`);
+  if (bad.length) fail(`below minimum ${min} or denied (${Object.keys(DENIED_TEMPLATES).join(", ")}): ${bad.join(", ")}`);
   log(`all ${OPT2_REPOS.length} repos at or above ${min}`);
 }
 
@@ -2238,6 +2613,9 @@ export const GH_WORKFLOW_PATH = ".github/workflows/opt2-release.yml";
 export const WP_RELEASE_PATH = ".woodpecker/release.yaml";
 /** ci-v9.10 (C222): the Woodpecker repo secret the release-publish step (and only that step) reads. Created by Martin by hand. */
 export const WP_RELEASE_SECRET = "tb_release_token";
+/** ci-v9.11 (C232): the Woodpecker repo secret the release-image-push step (and only that step) reads: a classic PAT with
+ *  write:packages ONLY, of a machine user that can write one package (design: coordination/leads/platform/contracts/GHCR-FROM-WOODPECKER.md). */
+export const WP_GHCR_SECRET = "tb_ghcr_token";
 
 /** ci-v9.10 (C222): exactly one publisher per tag. Pure. */
 export function releaseFileProblems(releaseOn: ReleaseOn, releases: boolean, hasGhWorkflow: boolean, hasWpRelease: boolean): string[] {
@@ -2296,6 +2674,12 @@ async function cmdGhBuild(): Promise<void> {
     const full = repoFullName(repo); // C206: the repo this Action runs in; its owner's ghcr namespace is the only one it can push to
     const ns = imageNamespace(full.split("/")[0]);
     for (const im of cfg.images) {
+      if (wpBuildActive) {
+        // ci-v9.11 (C232): Woodpecker has no docker daemon: the release-image step (kaniko --no-push --tar-path) builds the tarball
+        // from the script wp-build writes at the end; the plan only names it
+        plan.images.push({ name: im.name, tar: `${im.name}.tar`, version });
+        continue;
+      }
       const ref = `${ns}/${im.name}:${version}`;
       sh(
         "docker",
@@ -2491,11 +2875,14 @@ async function cmdWpBuild(): Promise<void> {
   }
   process.env.CI_COMMIT_TAG = target.tag;
   process.env.CI_COMMIT_SHA = target.commit;
-  const cfg = loadConfig(root);
-  if (/^v\d/.test(target.tag) && cfg.images.length > 0)
-    fail("C222: images cannot be published from Woodpecker in ci-v9.10 (no GHCR credential yet); use the Actions release in a public repo");
   wpBuildActive = true;
   await cmdGhBuild();
+  // ci-v9.11 (C232): the kaniko step's script, written LAST (after every repo script ran). It holds no secret and names the tag's images.
+  const cfg = loadConfig(root);
+  const full = `${OWNER}/${repoName(root)}`;
+  const appVersion = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(target.tag)?.[1] ?? null;
+  writeFileSync(join(root, WP_IMAGE_SCRIPT), renderReleaseImagesScript(appVersion ? cfg.images : [], full, appVersion ?? "", target.commit), { mode: 0o755 });
+  log(`wp-build: wrote ${WP_IMAGE_SCRIPT} (${appVersion ? cfg.images.length : 0} image(s) for ${target.tag})`);
 }
 
 async function ghBytes(path: string): Promise<{ status: number; data: Uint8Array }> {
@@ -2566,6 +2953,7 @@ async function cmdWpPublish(): Promise<void> {
   if (cwd === wsReal || cwd.startsWith(`${wsReal}/`)) fail("wp-publish must run outside the workspace (it runs no repo code)");
   const out = resolve(outEnv);
   const repo = process.env.CI_REPO_NAME;
+  if (process.env.GHCR_TOKEN) fail(`C232: wp-publish must run without GHCR_TOKEN (the secret ${WP_GHCR_SECRET} belongs to release-image-push only)`);
   if (!repo || !process.env.GITHUB_TOKEN) fail(`wp-publish needs CI_REPO_NAME and the secret ${WP_RELEASE_SECRET} (as GITHUB_TOKEN)`);
   const full = `${OWNER}/${repo}`;
   if (process.env.CI_REPO && process.env.CI_REPO !== full) fail(`CI_REPO ${process.env.CI_REPO} != ${full}`);
@@ -2577,13 +2965,27 @@ async function cmdWpPublish(): Promise<void> {
   const plan = JSON.parse(readFileSync(join(out, "plan.json"), "utf8")) as GhPlan;
   if (plan.schema !== "opt2.gh-release-plan/v1" || plan.repo !== repo || plan.tag !== target.tag || plan.commit !== target.commit)
     fail(`plan (${plan.repo} ${plan.tag} ${plan.commit}) does not match the tag on GitHub (${repo} ${target.tag} ${target.commit})`);
-  if (plan.images.length) fail("C222: images are not published from Woodpecker in ci-v9.10");
-  if (!plan.assets.length) {
+  if (!plan.assets.length && !plan.images.length) {
     log(`wp-publish: nothing to publish for ${target.tag}`);
     return;
   }
   const prerelease = /-v?\d+\.\d+\.\d+-/.test(target.tag) || /^v\d+\.\d+\.\d+-/.test(target.tag);
   const rel = await ensureRelease(repo, target.tag, prerelease);
+  if (plan.images.length) {
+    // ci-v9.11 (C232): the images were pushed by release-image-push; the digests it wrote are data. The declared images come from the
+    // config AT THE TAG COMMIT on GitHub, never from the workspace.
+    const cfgRes = await gh("GET", `/repos/${full}/contents/tealbrick-ci.json?ref=${target.commit}`);
+    if (cfgRes.status !== 200 || typeof cfgRes.json?.content !== "string") fail(`read tealbrick-ci.json at ${target.commit}: HTTP ${cfgRes.status}`);
+    let cfg: CiConfig;
+    try {
+      cfg = validateConfig(JSON.parse(Buffer.from(cfgRes.json.content, "base64").toString("utf8")), repo);
+    } catch (e) {
+      fail(`tealbrick-ci.json at ${target.commit}: ${(e as Error).message}`);
+    }
+    const doc = await wpCandidateDoc(cfg, repo, target.tag, target.commit, plan, out);
+    if (doc === null) log("wp-publish: no app/bridge image in this release; no release-candidate.json");
+    else await publishAssetOnce(full, rel, CANDIDATE_ASSET, Buffer.from(`${JSON.stringify(doc, null, 2)}\n`), "application/json");
+  }
   for (const name of plan.assets) {
     if (!KIT_NAME_RE.test(name) && !PKG_NAME_RE.test(name)) fail(`unexpected asset name ${name}`);
     const data = readFileSync(join(out, "assets", name));
@@ -2594,6 +2996,247 @@ async function cmdWpPublish(): Promise<void> {
     log(`attached ${name} to ${full} ${target.tag} (sha256 ${sums.sha256}, integrity ${sums.integrity})`);
   }
   log(`wp-publish: done (${plan.assets.length} asset(s)); registry-sync indexes it, the dist mirror copies it`);
+}
+
+// ---------- Woodpecker image releases (C232, ci-v9.11): kaniko --no-push builds, crane pushes ----------
+// Design: coordination/leads/platform/contracts/GHCR-FROM-WOODPECKER.md. GHCR takes a push from outside Actions only with a classic
+// PAT (write:packages) of a machine user that can write ONE package. The steps (release.yaml):
+//   release-build       repo code, no secret   wp-build records the images in the plan and writes WP_IMAGE_SCRIPT (last)
+//   release-image       kaniko, no secret      builds each image from the tagged commit, linux/amd64, to .tb-ci/out/<image>.tar (no push)
+//   release-image-push  NO repo code, the ONLY step with tb_ghcr_token   wp-push (this runner, hash-checked, in /tmp)
+//   release-publish     NO repo code, the ONLY step with tb_release_token   wp-publish attaches release-candidate.json (image@digest)
+
+/** The script release-build leaves for the kaniko step (generated after all repo code ran; the step runs it with busybox sh). */
+export const WP_IMAGE_SCRIPT = ".tb-ci/release-images.sh";
+/** The release asset that names the pushed images (schema opt2.release-candidate/v1, the signer's own document). */
+export const CANDIDATE_ASSET = "release-candidate.json";
+export const KANIKO_PLATFORM = "linux/amd64";
+/** crane (go-containerregistry) release tarball for the Woodpecker agent (linux/amd64). The sha256 is the one in the release's own
+ *  checksums.txt, checked again by hand when the version changed. The runner (itself hash-checked) refuses any other bytes. */
+export const CRANE_VERSION = "v0.22.1";
+export const CRANE_URL = `https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz`;
+export const CRANE_SHA256 = "0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0";
+const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
+const IMAGE_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+/** Escapes a value for the inside of a double-quoted sh string. */
+function dq(v: string): string {
+  return v.replace(/[\\"$`]/g, "\\$&");
+}
+
+/** The kaniko step's script for one tag: builds every declared image from the checked-out TAGGED commit without pushing, with the
+ *  labels the Actions path sets (source, revision, version; registry-sync's verifyImageProvenance needs source + revision). Pure. */
+export function renderReleaseImagesScript(images: readonly ImageSpec[], full: string, version: string, commit: string): string {
+  const lines = [
+    "#!/bin/sh",
+    "# generated by tb-ci wp-build (C232); runs in the kaniko debug image (busybox sh); holds no credentials; never pushes",
+    "set -eu",
+  ];
+  if (images.length === 0) {
+    lines.push('echo "tb-ci: no images for this tag; nothing to build"', "exit 0");
+    return `${lines.join("\n")}\n`;
+  }
+  if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error(`bad commit ${JSON.stringify(commit)}`);
+  if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error(`bad version ${JSON.stringify(version)}`);
+  if (!/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+$/.test(full)) throw new Error(`bad repo ${JSON.stringify(full)}`);
+  const ns = imageNamespace(full.split("/")[0] as string);
+  lines.push('mkdir -p "$CI_WORKSPACE/.tb-ci/out"');
+  for (const im of images) {
+    if (!IMAGE_NAME_RE.test(im.name)) throw new Error(`bad image name ${JSON.stringify(im.name)}`);
+    lines.push(
+      `echo "tb-ci: release image ${im.name} ${version} (kaniko --no-push, ${KANIKO_PLATFORM})"`,
+      [
+        "/kaniko/executor --no-push",
+        `--context "$CI_WORKSPACE/${dq(im.context)}"`,
+        `--dockerfile "$CI_WORKSPACE/${dq(im.dockerfile)}"`,
+        `--destination ${ns}/${im.name}:${version}`,
+        `--custom-platform ${KANIKO_PLATFORM}`,
+        `--label org.opencontainers.image.source=https://github.com/${full}`,
+        `--label org.opencontainers.image.revision=${commit}`,
+        `--label org.opencontainers.image.version=${version}`,
+        `--tar-path "$CI_WORKSPACE/.tb-ci/out/${im.name}.tar"`,
+        "--cleanup --verbosity info",
+      ].join(" "),
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+/** The OCI labels of the single image in a `docker save` / kaniko tarball. `readEntry` returns one member of the tarball. Pure. */
+export function labelsFromImageTar(readEntry: (member: string) => Buffer): Record<string, string> {
+  const manifest = JSON.parse(readEntry("manifest.json").toString("utf8")) as unknown;
+  const config = Array.isArray(manifest) && manifest.length === 1 ? (manifest[0] as { Config?: unknown }).Config : undefined;
+  if (typeof config !== "string" || !/^[A-Za-z0-9][A-Za-z0-9:._/-]*$/.test(config) || config.includes(".."))
+    throw new Error("image tarball: manifest.json must name exactly one image with a plain config entry");
+  const labels = (JSON.parse(readEntry(config).toString("utf8")) as { config?: { Labels?: Record<string, string> | null } }).config?.Labels;
+  return labels ?? {};
+}
+
+/** What is wrong with the provenance labels of an image tarball (registry-sync checks the same two on the pushed digest). Pure. */
+export function imageLabelProblems(labels: Record<string, string>, full: string, commit: string): string[] {
+  const out: string[] = [];
+  if (labels["org.opencontainers.image.revision"] !== commit) out.push(`revision label ${labels["org.opencontainers.image.revision"]} != ${commit}`);
+  if (labels["org.opencontainers.image.source"] !== `https://github.com/${full}`)
+    out.push(`source label ${labels["org.opencontainers.image.source"]} != https://github.com/${full}`);
+  return out;
+}
+
+/** A tag is never overwritten with another image: none = push, same digest = skip (retry), other digest = alarm. Pure. */
+export function ghcrPushDecision(existing: string | null, local: string): "push" | "same" | "conflict" {
+  if (existing === null) return "push";
+  return existing === local ? "same" : "conflict";
+}
+
+/** True when crane's error says "this tag does not exist" (anything else, e.g. 401/403/5xx, is NOT proof of absence). Pure. */
+export function craneAbsent(stderr: string): boolean {
+  return /MANIFEST_UNKNOWN|NAME_UNKNOWN|Error: [^\n]*unexpected status code 404/.test(stderr);
+}
+
+export interface CraneResult {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+/** Runs the crane binary (no shell). `input` goes to stdin. */
+export type CraneRun = (args: string[], input?: string) => CraneResult;
+
+/** Pushes every image tarball to `<ns>/<name>:<version>` and writes `<out>/<name>.digest`. Refuses to overwrite a tag that points to
+ *  another digest. The tarballs are DATA (crane reads them; nothing from the workspace is executed). Returns one log line per image. */
+export function pushImages(o: { out: string; images: readonly { name: string; tar: string }[]; ns: string; version: string; crane: CraneRun }): string[] {
+  const lines: string[] = [];
+  for (const im of o.images) {
+    const ref = `${o.ns}/${im.name}:${o.version}`;
+    const tarPath = join(o.out, im.tar);
+    const digestFile = join(o.out, `${im.name}.digest`);
+    rmSync(digestFile, { force: true });
+    const loc = o.crane(["digest", "--tarball", tarPath]);
+    const local = loc.stdout.trim();
+    if (loc.code !== 0 || !DIGEST_RE.test(local)) throw new Error(`${im.name}: cannot read the digest of ${im.tar}: ${loc.stderr.trim().split("\n").at(-1)}`);
+    const ex = o.crane(["digest", ref]);
+    let existing: string | null = null;
+    if (ex.code === 0) {
+      existing = ex.stdout.trim();
+      if (!DIGEST_RE.test(existing)) throw new Error(`${ref}: unexpected digest answer ${JSON.stringify(existing.slice(0, 80))}`);
+    } else if (!craneAbsent(ex.stderr)) {
+      throw new Error(`${ref}: cannot tell whether the tag exists (refusing to push): ${ex.stderr.trim().split("\n").at(-1)}`);
+    }
+    const decision = ghcrPushDecision(existing, local);
+    if (decision === "conflict")
+      throw new Error(`ALARM: ${ref} already points to ${existing}, this build is ${local}; a published tag is never overwritten (cut the next version)`);
+    if (decision === "same") {
+      lines.push(`${ref}: already published with the same digest ${local}; skipped`);
+    } else {
+      const push = o.crane(["push", tarPath, ref]);
+      if (push.code !== 0) throw new Error(`${ref}: push failed: ${push.stderr.trim().split("\n").at(-1)}`);
+      const after = o.crane(["digest", ref]);
+      if (after.code !== 0 || after.stdout.trim() !== local)
+        throw new Error(`ALARM: ${ref} reads back as ${after.stdout.trim() || "(nothing)"}, expected ${local}`);
+      lines.push(`${ref}: pushed ${local}`);
+    }
+    writeFileSync(digestFile, `${local}\n`);
+  }
+  return lines;
+}
+
+/** The release-candidate document of a Woodpecker image release: the signer's own document, with the digests release-image-push wrote
+ *  next to the tarballs. The images the plan names must be exactly the images tealbrick-ci.json declares at the tag commit. */
+export async function wpCandidateDoc(
+  cfg: CiConfig,
+  repo: string,
+  tag: string,
+  commit: string,
+  plan: Pick<GhPlan, "images">,
+  out: string,
+): Promise<ReleaseCandidateDoc | null> {
+  const declared = cfg.images.map((i) => i.name).sort();
+  const planned = plan.images.map((i) => i.name).sort();
+  if (declared.join() !== planned.join())
+    throw new Error(`plan images [${planned.join(",")}] != tealbrick-ci.json images [${declared.join(",")}] at ${commit}`);
+  const ns = imageNamespace(OWNER);
+  return buildCandidateDoc(cfg, repo, tag, commit, async (name) => {
+    const file = join(out, `${name}.digest`);
+    if (!existsSync(file)) throw new Error(`no digest for image ${name} (${file}): release-image-push did not run`);
+    const digest = readFileSync(file, "utf8").trim();
+    if (!DIGEST_RE.test(digest)) throw new Error(`${file}: not a sha256 digest`);
+    return `${ns}/${name}@${digest}`;
+  });
+}
+
+function tarMember(tarPath: string): (member: string) => Buffer {
+  return (member) => execFileSync("tar", ["-xOf", tarPath, member], { maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
+}
+
+/** release-image-push (secret tb_ghcr_token as GHCR_TOKEN; runs NO repo code): push the kaniko tarballs with crane. */
+async function cmdWpPush(): Promise<void> {
+  for (const k of ["GITHUB_TOKEN", "GH_TOKEN"]) if (process.env[k]) fail(`C232: wp-push must run without ${k} (the release-publish secret)`);
+  const outEnv = process.env.TB_OUT;
+  const ws = process.env.CI_WORKSPACE;
+  const repo = process.env.CI_REPO_NAME;
+  if (!outEnv || !ws || !repo) fail("wp-push needs TB_OUT, CI_WORKSPACE and CI_REPO_NAME");
+  const real = (p: string) => (existsSync(p) ? realpathSync(p) : resolve(p));
+  const cwd = real(process.cwd());
+  const wsReal = real(ws);
+  if (cwd === wsReal || cwd.startsWith(`${wsReal}/`)) fail("wp-push must run outside the workspace (it runs no repo code)");
+  const out = resolve(outEnv);
+  const full = `${OWNER}/${repo}`;
+  if (process.env.CI_REPO && process.env.CI_REPO !== full) fail(`CI_REPO ${process.env.CI_REPO} != ${full}`);
+  const env = wpReleaseEnv(process.env);
+  const plan = JSON.parse(readFileSync(join(out, "plan.json"), "utf8")) as GhPlan;
+  // The plan comes from a repo-code step, so it is only data: the tag and commit must agree with the pipeline (tag event: its own
+  // commit; manual: the plan names the commit and release-publish compares it with the tag on GitHub before it attaches anything).
+  const wanted = env.event === "manual" ? env.releaseTag : env.commitTag;
+  const target = wpReleaseTarget(env, (t) => (t === wanted ? (env.event === "tag" ? env.commitSha : plan.commit) : null));
+  if (typeof target === "string") fail(target);
+  if (plan.schema !== "opt2.gh-release-plan/v1" || plan.repo !== repo || plan.tag !== target.tag || plan.commit !== target.commit)
+    fail(`plan (${plan.repo} ${plan.tag} ${plan.commit}) does not match this run (${repo} ${target.tag} ${target.commit})`);
+  if (plan.images.length === 0) {
+    log(`wp-push: no images for ${target.tag}; nothing to push`);
+    return;
+  }
+  const token = process.env.GHCR_TOKEN;
+  if (!token) fail(`wp-push needs the secret ${WP_GHCR_SECRET} (as GHCR_TOKEN)`);
+  const version = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(target.tag)?.[1];
+  if (!version) fail(`images are released on v<semver> tags only (got ${target.tag})`);
+  const seen = new Set<string>();
+  for (const im of plan.images) {
+    if (!IMAGE_NAME_RE.test(im.name) || !(im.name === repo || im.name.startsWith(`${repo}-`))) fail(`image ${im.name} does not belong to ${repo}`);
+    if (seen.has(im.name)) fail(`image ${im.name} listed twice`);
+    seen.add(im.name);
+    if (im.tar !== `${im.name}.tar` || im.version !== version) fail(`unexpected plan entry for ${im.name}: ${JSON.stringify(im)}`);
+    const st = lstatSync(join(out, im.tar), { throwIfNoEntry: false });
+    if (!st?.isFile()) fail(`${im.tar}: the kaniko step did not write a regular file`);
+    const problems = imageLabelProblems(labelsFromImageTar(tarMember(join(out, im.tar))), full, target.commit);
+    if (problems.length) fail(`${im.name}: ${problems.join("; ")} (nothing was pushed)`);
+  }
+  const tmp = mkdtempSync(join(tmpdir(), "tb-crane-")); // 0700, outside the workspace; holds the crane binary and the login, removed below
+  let problem: string | null = null;
+  try {
+    const res = await fetch(CRANE_URL);
+    if (!res.ok) throw new Error(`GET ${CRANE_URL}: HTTP ${res.status}`);
+    const bytes = Buffer.from(await res.arrayBuffer());
+    const got = createHash("sha256").update(bytes).digest("hex");
+    if (got !== CRANE_SHA256) throw new Error(`crane ${CRANE_VERSION}: sha256 ${got} != pinned ${CRANE_SHA256}`);
+    writeFileSync(join(tmp, "crane.tgz"), bytes);
+    execFileSync("tar", ["-xzf", join(tmp, "crane.tgz"), "-C", tmp, "crane"], { stdio: "pipe" });
+    chmodSync(join(tmp, "crane"), 0o755);
+    const cfgDir = join(tmp, "docker");
+    mkdirSync(cfgDir, { mode: 0o700 });
+    const childEnv = { PATH: process.env.PATH ?? "", HOME: tmp, DOCKER_CONFIG: cfgDir };
+    const crane: CraneRun = (args, input) => {
+      const r = spawnSync(join(tmp, "crane"), args, { input, encoding: "utf8", env: childEnv, maxBuffer: 16 * 1024 * 1024 });
+      return { code: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+    };
+    // the token goes to crane's stdin only: never argv, never the log, never the workspace
+    const login = crane(["auth", "login", REGISTRY_HOST, "-u", process.env.GH_ACTOR ?? OWNER, "--password-stdin"], token);
+    if (login.code !== 0) throw new Error(`crane login ${REGISTRY_HOST} failed`);
+    for (const line of pushImages({ out, images: plan.images, ns: imageNamespace(OWNER), version, crane })) log(line);
+  } catch (e) {
+    problem = (e as Error).message;
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  if (problem) fail(problem);
+  log(`wp-push: done (${plan.images.length} image(s)); registry-sync verifies the labels and signs the digest`);
 }
 
 function cmdPlanImages(): void {
@@ -3049,7 +3692,7 @@ export function auditVerdict(repo: string, status: number, via: RepoReader["via"
   if (status === 404 && PENDING_REPOS.includes(repo)) return "PEND";
   if (status === 404 && PRIVATE_REPOS.includes(repo) && via !== "read-token") return "SKIP";
   if (status !== 200) return "FAIL";
-  return belowMinimum(ref, min) ? "FAIL" : "OK";
+  return belowMinimum(ref, min) || DENIED_TEMPLATES[ref] !== undefined ? "FAIL" : "OK";
 }
 
 async function fileAt(rd: RepoReader, repo: string, commit: string, path: string): Promise<string> {
@@ -3156,24 +3799,24 @@ export async function ghcrFind(name: string, tag: string, fetcher: typeof fetch 
   return null;
 }
 
-/** Builds the candidate for one product tag from the repo at that commit + ghcr; null = images not published (pending). */
-async function candidateFromTag(repo: string, tag: string, commit: string, rd: RepoReader): Promise<ReleaseCandidateDoc | null> {
+/** The release candidate of one product tag, from the repo's config at the tag commit. `imageOf` answers the `ghcr.io/<ns>/<name>@sha256:…`
+ *  of a declared image (null = not published yet -> the whole document is null = pending). Shared by the signer (ghcr lookup) and,
+ *  since ci-v9.11 (C232), the Woodpecker release-publish step (digests the push step wrote), so both write the same document. */
+export async function buildCandidateDoc(
+  cfg: CiConfig,
+  repo: string,
+  tag: string,
+  commit: string,
+  imageOf: (imageName: string) => Promise<string | null>,
+): Promise<ReleaseCandidateDoc | null> {
   const version = versionFromTag(tag);
-  const cfgText = await fileAt(rd, `${OWNER}/${repo}`, commit, "tealbrick-ci.json").catch(() => null);
-  if (!cfgText) return null;
-  let cfg: CiConfig;
-  try {
-    cfg = validateConfig(JSON.parse(cfgText), repo);
-  } catch {
-    return null; // tag predates the current tealbrick-ci.json schema: it cannot carry Actions-built images
-  }
   const candidates: ReleaseCandidate[] = [];
   for (const im of cfg.images.filter((x) => x.kind === "app" || x.kind === "bridge")) {
-    const image = await ghcrFind(im.name, version);
+    const image = await imageOf(im.name);
     if (!image) return null;
     const services: { id: string; image: string }[] = [];
     for (const sv of cfg.images.filter((x) => x.kind === "service" && x.product === im.product)) {
-      const svImage = await ghcrFind(sv.name, version);
+      const svImage = await imageOf(sv.name);
       if (!svImage) return null;
       services.push({ id: sv.service as string, image: svImage });
     }
@@ -3189,6 +3832,20 @@ async function candidateFromTag(repo: string, tag: string, commit: string, rd: R
     });
   }
   return candidates.length ? { schema: "opt2.release-candidate/v1", repo: `${OWNER}/${repo}`, tag, commit, candidates } : null;
+}
+
+/** Builds the candidate for one product tag from the repo at that commit + ghcr; null = images not published (pending). */
+async function candidateFromTag(repo: string, tag: string, commit: string, rd: RepoReader): Promise<ReleaseCandidateDoc | null> {
+  const version = versionFromTag(tag);
+  const cfgText = await fileAt(rd, `${OWNER}/${repo}`, commit, "tealbrick-ci.json").catch(() => null);
+  if (!cfgText) return null;
+  let cfg: CiConfig;
+  try {
+    cfg = validateConfig(JSON.parse(cfgText), repo);
+  } catch {
+    return null; // tag predates the current tealbrick-ci.json schema: it cannot carry Actions-built images
+  }
+  return buildCandidateDoc(cfg, repo, tag, commit, (name) => ghcrFind(name, version));
 }
 
 /** Platform signer pipeline (cron/manual, platform repo only, holds release_signing_key):
@@ -3660,6 +4317,8 @@ async function main(argv: string[]): Promise<void> {
       return cmdGen();
     case "pre-release":
       return cmdPreRelease();
+    case "osv-check":
+      return cmdOsvCheck(rest);
     case "gh-build":
       return cmdGhBuild();
     case "gh-publish":
@@ -3668,6 +4327,8 @@ async function main(argv: string[]): Promise<void> {
       return cmdWpBuild();
     case "wp-publish":
       return cmdWpPublish();
+    case "wp-push":
+      return cmdWpPush();
     case "audit-templates":
       return cmdAuditTemplates();
     case "plan-images":
@@ -3692,7 +4353,7 @@ async function main(argv: string[]): Promise<void> {
       return cmdRegistryAddSource(rest);
     default:
       fail(
-        "usage: tb-ci setup|install|run <script>|gen|pre-release|audit-templates|gh-build|gh-publish|wp-build|wp-publish|plan-images|release-record|package-pack|registry-add-desktop|registry-add-source|registry-sign|registry-sync|pin-tarballs|adopt|stamp",
+        "usage: tb-ci setup|install|run <script>|gen|pre-release|osv-check <report.json>|audit-templates|gh-build|gh-publish|wp-build|wp-push|wp-publish|plan-images|release-record|package-pack|registry-add-desktop|registry-add-source|registry-sign|registry-sync|pin-tarballs|adopt|stamp",
       );
   }
 }

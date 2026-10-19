@@ -3,7 +3,19 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 // Key-like strings are assembled at run time (k()) so the secret scan never sees a provider-key shape in this file.
-import { checkValue, generateKek, kekIdOf, parseArgs, planLines, railwaySetArgs, redact, SECRETS, type SecretSpec, selectSpecs } from "./prod-secrets.ts";
+import {
+  checkValue,
+  generateKek,
+  kekIdOf,
+  parseArgs,
+  planLines,
+  railwaySetArgs,
+  redact,
+  SECRETS,
+  type SecretSpec,
+  selectSpecs,
+  stripeModeNotes,
+} from "./prod-secrets.ts";
 
 const k = (prefix: string, mode: string, body: string): string => [prefix, mode, body].join("_");
 
@@ -52,7 +64,7 @@ test("planLines: names and services only", () => {
   assert.match(lines, /nothing is deployed/);
 });
 
-test("checkValue: provider key prefixes; test-mode Stripe only; live Clerk only", () => {
+test("checkValue: provider key prefixes; Stripe live restricted or test; live Clerk only", () => {
   const sk = k("sk", "live", "a".repeat(40));
   assert.equal(checkValue(spec("CLERK_SECRET_KEY"), sk), null);
   assert.match(checkValue(spec("CLERK_SECRET_KEY"), k("sk", "test", "a".repeat(40))) ?? "", /sk_live_/);
@@ -60,7 +72,10 @@ test("checkValue: provider key prefixes; test-mode Stripe only; live Clerk only"
   assert.ok(checkValue(spec("CLERK_PUBLISHABLE_KEY"), k("pk", "test", "abcdefghijk")));
   assert.equal(checkValue(spec("STRIPE_SECRET_KEY"), k("rk", "test", "A1".repeat(20))), null);
   assert.equal(checkValue(spec("STRIPE_SECRET_KEY"), k("sk", "test", "A1".repeat(20))), null);
-  assert.match(checkValue(spec("STRIPE_SECRET_KEY"), k("rk", "live", "A1".repeat(20))) ?? "", /TEST key/);
+  // C231: a LIVE restricted key is accepted; a full live secret key is refused (least privilege)
+  assert.equal(checkValue(spec("STRIPE_SECRET_KEY"), k("rk", "live", "A1".repeat(20))), null);
+  assert.match(checkValue(spec("STRIPE_SECRET_KEY"), k("sk", "live", "A1".repeat(20))) ?? "", /sk_live_\) is refused/);
+  assert.ok(checkValue(spec("STRIPE_SECRET_KEY"), k("pk", "live", "A1".repeat(20))));
   assert.equal(checkValue(spec("STRIPE_WEBHOOK_SECRET"), ["whsec", "b".repeat(32)].join("_")), null);
   assert.equal(checkValue(spec("CLERK_WEBHOOK_SECRET"), ["whsec", "b+/=".repeat(8)].join("_")), null);
   assert.ok(checkValue(spec("CLERK_WEBHOOK_SECRET"), "secret"));
@@ -101,4 +116,22 @@ test("redact: removes every value from CLI output", () => {
 test("railwaySetArgs: value never in argv; always --stdin and --skip-deploys", () => {
   const a = railwaySetArgs("STRIPE_SECRET_KEY", "portal-core", "live");
   assert.deepEqual(a, ["variable", "set", "STRIPE_SECRET_KEY", "--stdin", "--skip-deploys", "--service", "portal-core", "--environment", "live"]);
+});
+
+test("C231 stripeModeNotes: live key → flag reminder (and webhook secret when missing); test key → roll-back note; never the value", () => {
+  const live = k("rk", "live", "Z9".repeat(20));
+  const notes = stripeModeNotes([{ spec: { name: "STRIPE_SECRET_KEY" }, value: live }]);
+  assert.equal(notes.length, 2);
+  assert.match(notes[0] ?? "", /TB_STRIPE_ALLOW_LIVE=1/);
+  assert.match(notes[1] ?? "", /STRIPE_WEBHOOK_SECRET/);
+  assert.equal(
+    stripeModeNotes([
+      { spec: { name: "STRIPE_SECRET_KEY" }, value: live },
+      { spec: { name: "STRIPE_WEBHOOK_SECRET" }, value: "w" },
+    ]).length,
+    1,
+  );
+  assert.match(stripeModeNotes([{ spec: { name: "STRIPE_SECRET_KEY" }, value: k("rk", "test", "Z9".repeat(20)) }]).join(" "), /TEST key/);
+  assert.deepEqual(stripeModeNotes([]), []);
+  assert.doesNotMatch(notes.join(" "), /Z9Z9/);
 });

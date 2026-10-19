@@ -1,5 +1,7 @@
 // Activate opt2 repos in Woodpecker and set the CI secrets. Run on the operator machine:
-//   WOODPECKER_URL=<server url> node ops/woodpecker-activate.ts
+//   WOODPECKER_URL=<server url> node ops/woodpecker-activate.ts [--repo <name>]
+// --repo (C259 backlog): touch ONE repo only (activation, settings, its repo secrets); no other repo and no org-level secret
+// is read or changed. <name> = "fleet", "opt2-tealbrick-fleet" or "Tealbrick/opt2-tealbrick-fleet"; it must be a listed repo.
 // Reads tokens from files (never argv, never printed):
 //   ~/.config/opt2-tealbrick/woodpecker-token   Woodpecker personal access token (required)
 // Secrets (C72): Woodpecker holds none; the script deletes any org-level or repo secret it finds. See ci/README.md.
@@ -34,13 +36,33 @@ const REPOS = [
   "fleet",
   "evolution",
   "cli", // C173/C177: private repo (exists since 2026-10-15)
+  "observer", // C258a: public since 2026-10-18; moved out of ACTIVATE_PRIVATE
+  "live-artifacts", // C249 (ci-v9.15): public; moved out of ACTIVATE_PRIVATE
 ].map((n) => `opt2-tealbrick-${n}`);
 /** C203: private repos activated here that are NOT opt2 release repos (not in OPT2_REPOS / PRIVATE_REPOS: no releases, no
  *  registry-sync, no template audit). Woodpecker visibility private (pipeline logs of proprietary code). */
 //  opt2-tealbrick-live-artifacts (C230 note, Coordinator 2026-10-17): a new mini app built privately before its first release; it
-//  moves into OPT2_REPOS (and out of this list) with the public flip and Martin's yes, before v0.1.0.
-const ACTIVATE_PRIVATE: readonly string[] = ["opt2-tealbrick-admin", "opt2-tealbrick-live-artifacts"];
+//  moves into OPT2_REPOS (and out of this list) with the public flip and Martin's yes, before v0.1.0. Same for
+//  opt2-tealbrick-creative (C190) (Coordinator OK 2026-10-17). opt2-tealbrick-observer (C258a) and opt2-tealbrick-live-artifacts (ci-v9.15) moved to REPOS with their public flips.
+const ACTIVATE_PRIVATE: readonly string[] = ["opt2-tealbrick-admin", "opt2-tealbrick-creative"];
 const ALL_REPOS = [...REPOS, ...ACTIVATE_PRIVATE];
+
+/** The repos this run touches: all of them, or the one `--repo` names (a listed repo only; anything else is an error). */
+export function selectRepos(argv: readonly string[], all: readonly string[]): { only: string | null; repos: string[] } {
+  const i = argv.indexOf("--repo");
+  const extra = argv.filter((a, k) => !(i >= 0 && (k === i || k === i + 1)) && !(a === "--repo"));
+  if (extra.length > 0) throw new Error(`unknown argument ${JSON.stringify(extra[0])} (usage: [--repo <name>])`);
+  if (i < 0) return { only: null, repos: [...all] };
+  const raw = argv[i + 1];
+  if (!raw || raw.startsWith("--")) throw new Error("--repo needs a repo name");
+  if (argv.indexOf("--repo", i + 1) >= 0) throw new Error("--repo given twice");
+  const bare = raw.includes("/") ? raw.slice(raw.lastIndexOf("/") + 1) : raw;
+  const name = bare.startsWith("opt2-tealbrick-") ? bare : `opt2-tealbrick-${bare}`;
+  if (!all.includes(name)) throw new Error(`--repo ${JSON.stringify(raw)}: not a repo this script manages`);
+  return { only: name, repos: [name] };
+}
+const { only, repos: TARGETS } = selectRepos(process.argv.slice(2), ALL_REPOS);
+if (only) console.log(`--repo: only ${only} (no other repo, no org-level secret)`);
 const CFG = join(homedir(), ".config/opt2-tealbrick");
 
 const base = process.env.WOODPECKER_URL?.replace(/\/$/, "");
@@ -81,13 +103,13 @@ function githubRepo(repo: string): { fullName: string; id: number } {
   throw new Error(`${repo}: not found under ${OWNERS.join(" or ")}`);
 }
 const gh = new Map<string, { fullName: string; id: number }>();
-for (const repo of ALL_REPOS) gh.set(repo, githubRepo(repo));
+for (const repo of TARGETS) gh.set(repo, githubRepo(repo));
 
 const me = await wp("GET", "/user");
 if (me.status !== 200) throw new Error(`token rejected by Woodpecker (HTTP ${me.status})`);
 console.log(`woodpecker user: ${me.json.login}`);
 
-for (const repo of ALL_REPOS) {
+for (const repo of TARGETS) {
   const cur = gh.get(repo) as { fullName: string; id: number };
   let look = await wp("GET", `/repos/lookup/${cur.fullName}`);
   if (look.status !== 200) {
@@ -134,7 +156,8 @@ interface Want {
   events: string[];
 }
 const WANT: Want[] = [];
-/** C222 (template ci-v9.10): repo secrets made by hand and used ONLY by the publish step of .woodpecker/release.yaml. Never
+/** C222 (template ci-v9.10, C232 ci-v9.11): repo secrets made by hand and used ONLY by one step of .woodpecker/release.yaml each
+ *  (release-publish: tb_release_token; release-image-push: tb_ghcr_token). Never
  *  deleted or written here; the script warns when the event filter is not exactly these events or an image filter is set
  *  (Woodpecker refuses image-filtered secrets on command steps). */
 interface Keep {
@@ -142,13 +165,19 @@ interface Keep {
   name: string;
   events: string[];
 }
-const KEEP: Keep[] = [{ repo: "opt2-tealbrick-cli", name: "tb_release_token", events: ["manual", "tag"] }];
+// C232 (template ci-v9.11): the bridge repo releases its image on Woodpecker. tb_ghcr_token (classic PAT, write:packages only, of the
+// machine user) is read ONLY by the release-image-push step; tb_release_token (publish step) is the same as in the cli repo.
+const KEEP: Keep[] = [
+  { repo: "opt2-tealbrick-cli", name: "tb_release_token", events: ["manual", "tag"] },
+  { repo: "opt2-tealbrick-bridge", name: "tb_release_token", events: ["manual", "tag"] },
+  { repo: "opt2-tealbrick-bridge", name: "tb_ghcr_token", events: ["manual", "tag"] },
+];
 
 // C72: no org-level secrets in the opt2 Woodpecker org. ONLY the Martin-Atrin org (opt2 only). NEVER the Tealbrick org: it is
 // shared with the v1 repos and their own org secrets (C206 incident 2026-10-16: an earlier version of this loop deleted the
 // v1 Tealbrick org secrets registry_host/registry_username/registry_password).
 const CLEAN_ORG_SECRETS_OF = "Martin-Atrin";
-{
+if (!only) {
   const org = await wp("GET", `/orgs/lookup/${CLEAN_ORG_SECRETS_OF}`);
   if (org.status !== 200 && org.status !== 404) throw new Error(`org lookup ${CLEAN_ORG_SECRETS_OF} failed (HTTP ${org.status})`);
   if (org.status === 200) {
@@ -159,7 +188,7 @@ const CLEAN_ORG_SECRETS_OF = "Martin-Atrin";
   }
 }
 const ids = new Map<string, number>();
-for (const repo of ALL_REPOS) {
+for (const repo of TARGETS) {
   for (const name of [(gh.get(repo) as { fullName: string }).fullName, ...OWNERS.map((o) => `${o}/${repo}`)]) {
     const r = await wp("GET", `/repos/lookup/${name}`);
     if (r.status === 200) {
@@ -169,7 +198,7 @@ for (const repo of ALL_REPOS) {
   }
   if (!ids.has(repo)) throw new Error(`${repo}: not found in Woodpecker after activation`);
 }
-for (const repo of ALL_REPOS) {
+for (const repo of TARGETS) {
   const id = ids.get(repo) as number;
   const want = WANT.filter((w) => w.repo === repo);
   const keep = KEEP.filter((k) => k.repo === repo);
