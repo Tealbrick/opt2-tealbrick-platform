@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-19T07:35:11.968Z",
+  "generatedAt": "2026-10-19T07:42:56.842Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -2838,6 +2838,32 @@
       "commit": "4cfd2db7a6e44f82337fb749ea4757fa6eacb412",
       "tag": "conformance-v0.1.22",
       "publishedAt": "2026-10-18T02:01:08.096Z"
+    },
+    {
+      "id": "rel_01M59HT2M9SJ8ZEJPWTAYG22JF",
+      "product": "conformance",
+      "kind": "package",
+      "version": "0.1.23",
+      "channel": "stable",
+      "manifestDigest": null,
+      "manifestUrl": null,
+      "skillsDigest": null,
+      "image": null,
+      "artifact": {
+        "url": "https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/opt2-tealbrick-sdk-conformance-v0.1.23/opt2-tealbrick-conformance-0.1.23.tgz",
+        "sha256": "sha256:5bf9132d4f02209437856faeb685aa0efa7b5f2ee765ba9e36c06cf2914b2046",
+        "integrity": "sha512-msE5mi7VlwhBj4Ox3DrpD4eTKFJnek5OcLzTH0wT0alPObdgYjqQc2d80HSw+4XFlahUZ3oWWW9y1iv0ijA3ew=="
+      },
+      "source": null,
+      "runtime": null,
+      "services": null,
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-sdk",
+      "commit": "aa6e16139e9eeef5cad4e3cde34f1df9d407603d",
+      "tag": "conformance-v0.1.23",
+      "publishedAt": "2026-10-19T07:42:54.595Z"
     },
     {
       "id": "rel_01M4NBMYAD3NH60WW7GCRPSJMG",
