@@ -6,6 +6,8 @@
 //   run <script>                run a standard script per project path (typecheck|lint|test|conformance|build)
 //   gen                         BSA-03: committed gen/ not stale, `gen` script produces every tb-gen kind, tb-gen check passes
 //   pre-release                 ci-v9.6: run tealbrick-ci.json preReleaseChecks (repo scripts) on every pipeline; gh-build runs them again on the tag
+//   boot-smoke                  ci-v9.17 (L68): kind miniapp: start the BUILT entry (node <package.json main | dist/main.js>) and require a healthy
+//                               answer of its health path (the pre-release step runs it after the repo's preReleaseChecks); opt-out only via bootSmoke
 //   osv-check <report.json>     ci-v9.14 (C262): judge the osv-scanner JSON report of the osv-scan step; fails on HIGH/CRITICAL/unknown
 //                               severity not covered by a valid osvIgnore entry (reason + expiry, at most 90 days)
 //   audit-templates             (platform cron) every opt2 repo's template ref >= ci/MIN_TEMPLATE
@@ -27,7 +29,7 @@
 // Crypto and canonical JSON come ONLY from @opt2-tealbrick/manifest (CORE §3: one owner of primitives),
 // loaded at run time from its GitHub release tarball (TB_MANIFEST_PKG) for the registry commands.
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash, createPrivateKey, createPublicKey, randomBytes } from "node:crypto";
 import {
   appendFileSync,
@@ -40,11 +42,12 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
-import { createConnection } from "node:net";
+import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join, posix, resolve } from "node:path";
+import { dirname, join, posix, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
 
@@ -192,6 +195,7 @@ export interface CiConfig {
   packScripts: Record<string, string>; // ci-v9.7: package dir -> repo-relative .ts that builds that package's release tarball
   releaseOn: ReleaseOn; // ci-v9.10 (C222): who publishes releases: GitHub Actions (public repos) or Woodpecker (private repos)
   osvIgnore: OsvIgnore[]; // ci-v9.14 (C262): vulnerabilities accepted for a limited time (reason + expiry <= 90 days), see osv-check
+  bootSmoke: BootSmokeSkip | null; // ci-v9.17 (L68): the one opt-out of the miniapp boot smoke (reason + expiry <= 90 days), null = the smoke runs
 }
 /** ci-v9.10 (C222): "actions" = .github/workflows/opt2-release.yml (free only in public repos); "woodpecker" = .woodpecker/release.yaml. */
 export type ReleaseOn = "actions" | "woodpecker";
@@ -770,6 +774,7 @@ export function validateConfig(raw: unknown, repoName: string): CiConfig {
     "packScripts",
     "releaseOn",
     "osvIgnore",
+    "bootSmoke",
   ]);
   for (const k of Object.keys(o)) if (!allowed.has(k)) throw new Error(`unknown field ${k}`);
   if (!KINDS.includes(o.kind as Kind)) throw new Error(`kind must be one of ${KINDS.join(", ")}`);
@@ -785,6 +790,7 @@ export function validateConfig(raw: unknown, repoName: string): CiConfig {
   const preReleaseChecks = parsePreReleaseChecks(o.preReleaseChecks);
   const packScripts = parsePackScripts(o.packScripts);
   const osvIgnore = parseOsvIgnore(o.osvIgnore);
+  const bootSmoke = parseBootSmoke(o.bootSmoke);
   const releaseOn = o.releaseOn === undefined ? "actions" : o.releaseOn;
   if (releaseOn !== "actions" && releaseOn !== "woodpecker") throw new Error('releaseOn must be "actions" or "woodpecker"');
   const imagesRaw = o.images === undefined ? [] : o.images;
@@ -833,7 +839,7 @@ export function validateConfig(raw: unknown, repoName: string): CiConfig {
       throw new Error(`service ${im.product}/${im.service} declared twice`);
   }
   // ci-v9.11 (C232): images are allowed with releaseOn "woodpecker" (kaniko --no-push + crane push, secret tb_ghcr_token)
-  return { kind, paths, conformance, images, postgres, distBaseUrl, preReleaseChecks, packScripts, releaseOn, osvIgnore };
+  return { kind, paths, conformance, images, postgres, distBaseUrl, preReleaseChecks, packScripts, releaseOn, osvIgnore, bootSmoke };
 }
 
 function safeRel(p: string): boolean {
@@ -2237,6 +2243,341 @@ function runPreReleaseChecks(cfg: CiConfig, root: string): void {
 function cmdPreRelease(): void {
   const root = repoRoot();
   runPreReleaseChecks(loadConfig(root), root);
+}
+
+// ---------- ci-v9.17 (L68): boot smoke of the built miniapp ----------
+// QA-GOV022-1: unit tests on src passed while `node dist/main.js` crashed with ERR_MODULE_NOT_FOUND. The `pre-release` step now also
+// starts the BUILT entry (the dist the build step made; no rebuild) and judges what it answers. Port of fleet scripts/boot-smoke.ts
+// (3a0206d + PR #14). Every Woodpecker step is its own container, so the port is the manifest's runtime.port as-is.
+
+/** First healthy answer within this time, else the smoke fails. */
+export const BOOT_SMOKE_TIMEOUT_MS = 60_000;
+/** After the first healthy answer the app must keep answering healthy for this long (a death right after listen would otherwise pass). */
+export const BOOT_SMOKE_STABLE_MS = 5_000;
+export const BOOT_SMOKE_POLL_MS = 250;
+/** SIGTERM first; SIGKILL when the child is still there after this time. */
+export const BOOT_SMOKE_KILL_MS = 5_000;
+/** A bootSmoke opt-out may run at most this many days from the day the step runs. */
+export const BOOT_SMOKE_SKIP_MAX_DAYS = 90;
+/** Health `status` values of a booted standalone app (miniapp-sdk app.js). The SDK's FAILED mode also answers HTTP 200, with status
+ *  "failed" and a `failure` code; "restoring" is not done yet. Both fail the smoke. */
+export const BOOT_SMOKE_HEALTHY: readonly string[] = ["ok", "needs_keys"];
+
+/** `bootSmoke` in tealbrick-ci.json: the only way to skip the smoke, for a limited time. `expires` is the first day it no longer applies. */
+export interface BootSmokeSkip {
+  skip: true;
+  reason: string; // why this app cannot be smoke-tested yet (>= 10 characters)
+  expires: string; // YYYY-MM-DD (UTC): after the run date, and at most BOOT_SMOKE_SKIP_MAX_DAYS days after it
+}
+
+/** Shape check only (the date window depends on the run date and is judged by `boot-smoke`, see bootSmokeSkipProblems). */
+export function parseBootSmoke(raw: unknown): BootSmokeSkip | null {
+  if (raw === undefined) return null;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error('bootSmoke must be { "skip": true, "reason", "expires" }');
+  const r = raw as Record<string, unknown>;
+  for (const k of Object.keys(r)) if (!["skip", "reason", "expires"].includes(k)) throw new Error(`bootSmoke: unknown field ${k}`);
+  const { skip, reason, expires } = r;
+  if (skip !== true) throw new Error("bootSmoke.skip must be true (remove bootSmoke to run the smoke)");
+  if (typeof reason !== "string" || reason.trim().length < 10) throw new Error("bootSmoke.reason must say why in at least 10 characters");
+  if (typeof expires !== "string" || osvDay(expires) === null)
+    throw new Error(`bootSmoke.expires must be a calendar date YYYY-MM-DD, got ${JSON.stringify(expires)}`);
+  return { skip: true, reason: reason.trim(), expires };
+}
+
+/** Problems of a bootSmoke opt-out on the run date `today` (YYYY-MM-DD, UTC): expired, or expiring more than BOOT_SMOKE_SKIP_MAX_DAYS ahead. */
+export function bootSmokeSkipProblems(skip: BootSmokeSkip, today: string): string[] {
+  const t = osvDay(today);
+  if (t === null) throw new Error(`bootSmokeSkipProblems: bad run date ${today}`);
+  const e = osvDay(skip.expires) as number;
+  if (e <= t) return [`bootSmoke: the opt-out expired on ${skip.expires} (today ${today}); fix the boot, or renew it with a new date and a current reason`];
+  if (e - t > BOOT_SMOKE_SKIP_MAX_DAYS)
+    return [
+      `bootSmoke: expires ${skip.expires}, more than ${BOOT_SMOKE_SKIP_MAX_DAYS} days after today (${today}); the latest allowed date is ${osvDayString(t + BOOT_SMOKE_SKIP_MAX_DAYS)}`,
+    ];
+  return [];
+}
+
+/** The entry the image runs: package.json "main" if set, else dist/main.js (repo-relative to the package dir, no "..", no absolute path). */
+export function bootSmokeEntry(pkg: { main?: unknown }): string {
+  if (pkg.main === undefined) return "dist/main.js";
+  if (typeof pkg.main !== "string" || pkg.main.trim() === "") throw new Error('package.json "main" must be a non-empty string');
+  const m = posix.normalize(pkg.main.trim().replaceAll("\\", "/"));
+  if (m.startsWith("/") || m === ".." || m.startsWith("../"))
+    throw new Error(`package.json "main" must stay inside the package, got ${JSON.stringify(pkg.main)}`);
+  return m;
+}
+
+/** Strings that must never reach a log: GitHub tokens, Stripe keys, webhook secrets, bearer headers (same list as ops/wp-failed.ts, which
+ *  cannot be imported: this runner is fetched as ONE file). Pinned equal by a test. */
+const LOG_REDACT: RegExp[] = [
+  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
+  /\b(?:rk|sk|pk)_(?:live|test)_[A-Za-z0-9]{8,}\b/g,
+  /\bwhsec_[A-Za-z0-9]{8,}\b/g,
+  /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
+];
+export function redactLog(line: string): string {
+  // terminal control sequences from child output (colours, cursor moves, OSC titles) never reach the log
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is the point
+  let out = line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|[\u0000-\u0008\u000b-\u001f\u007f]/g, "");
+  for (const re of LOG_REDACT) out = out.replace(re, "[redacted]");
+  return out;
+}
+
+/** One health answer judged: HTTP 200, a JSON body whose `version` is this build's (another process on the port fails) and whose
+ *  `status` is healthy. On failure `why` names the status and the failure code. Pure. */
+export function judgeHealth(httpStatus: number, body: unknown, version: string): { ok: true; detail: string } | { ok: false; why: string } {
+  if (httpStatus !== 200) return { ok: false, why: `HTTP ${httpStatus}` };
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return { ok: false, why: "HTTP 200 without a JSON object body" };
+  const b = body as Record<string, unknown>;
+  const show = (v: unknown): string => JSON.stringify(typeof v === "string" ? v.slice(0, 80) : (v ?? null));
+  if (b.version !== version) return { ok: false, why: `HTTP 200 with version ${show(b.version)}, wanted ${show(version)} (another version or process)` };
+  const status = typeof b.status === "string" ? b.status : undefined;
+  if (status === undefined || !BOOT_SMOKE_HEALTHY.includes(status))
+    return { ok: false, why: `HTTP 200 but not healthy: status ${show(b.status)}${b.failure === undefined ? "" : `, failure ${show(b.failure)}`}` };
+  return { ok: true, detail: `status ${status}` };
+}
+
+/** Listens on `want` for a moment; true when the port is free. */
+function portFree(want: number, host?: string): Promise<boolean> {
+  return new Promise((res) => {
+    const s = createServer();
+    s.once("error", () => res(false));
+    const done = () => s.close(() => res(true));
+    if (host) s.listen(want, host, done);
+    else s.listen(want, done);
+  });
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+/** Resolves true when `p` settles within `ms`, else false; its timer is cleared, so it never keeps the runner alive afterwards. */
+async function settlesWithin(p: Promise<unknown>, ms: number): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([p.then(() => true), new Promise<boolean>((r) => (timer = setTimeout(() => r(false), ms)))]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface BootSmokeOptions {
+  timeoutMs?: number;
+  stableMs?: number;
+  pollMs?: number;
+  killMs?: number;
+  tmp?: string; // parent of the app's fresh data dir (default: the OS temp dir)
+  log?: (msg: string) => void;
+}
+export interface BootSmokeResult {
+  ok: boolean;
+  message: string; // the verdict (one line)
+  tail: string[]; // the last 40 lines of the child's stdout+stderr (NOT yet redacted)
+}
+
+/** Boot smoke of ONE built package: `node <entry>` from `dir` with exactly PATH, NODE_ENV, TB_STANDALONE, TB_DATA_DIR, TB_BACKUP_DIR,
+ *  TB_LOG_LEVEL; passes only on the rules in the ci-v9.17 README section. Never rebuilds. The child is stopped on every exit path. */
+export async function bootSmoke(dir: string, o: BootSmokeOptions = {}): Promise<BootSmokeResult> {
+  const timeoutMs = o.timeoutMs ?? BOOT_SMOKE_TIMEOUT_MS;
+  const stableMs = o.stableMs ?? BOOT_SMOKE_STABLE_MS;
+  const pollMs = o.pollMs ?? BOOT_SMOKE_POLL_MS;
+  const say = o.log ?? (() => {});
+  const bad = (message: string, tail: string[] = []): BootSmokeResult => ({ ok: false, message, tail });
+
+  let pkg: { version?: unknown; main?: unknown };
+  let manifest: { runtime?: { port?: unknown; healthPath?: unknown } };
+  try {
+    pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as typeof pkg;
+    manifest = JSON.parse(readFileSync(join(dir, MANIFEST_FILE), "utf8")) as typeof manifest;
+  } catch (e) {
+    return bad(`cannot read package.json or ${MANIFEST_FILE}: ${(e as Error).message}`);
+  }
+  if (typeof pkg.version !== "string" || pkg.version === "") return bad("package.json has no version");
+  const version = pkg.version;
+  const port = manifest.runtime?.port;
+  const healthPath = manifest.runtime?.healthPath;
+  if (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65535) return bad(`${MANIFEST_FILE}: runtime.port must be a port number`);
+  if (typeof healthPath !== "string" || !healthPath.startsWith("/")) return bad(`${MANIFEST_FILE}: runtime.healthPath must be a path starting with /`);
+  let entry: string;
+  try {
+    entry = bootSmokeEntry(pkg);
+  } catch (e) {
+    return bad((e as Error).message);
+  }
+  if (!existsSync(join(dir, entry)) || !statSync(join(dir, entry)).isFile())
+    return bad(
+      existsSync(join(dir, "dist"))
+        ? `the entry ${entry} is missing in the built output (package.json "main" or dist/main.js)`
+        : `dist/ is missing: the build step must run before the boot smoke (it never rebuilds); the entry is ${entry}`,
+    );
+  if (!(await portFree(port, "127.0.0.1")) || !(await portFree(port))) return bad(`port ${port} in use`);
+
+  const dataDir = mkdtempSync(join(o.tmp ?? tmpdir(), "tb-boot-smoke-"));
+  const env: Record<string, string> = {
+    PATH: process.env.PATH ?? "",
+    NODE_ENV: "production",
+    TB_STANDALONE: "1",
+    TB_DATA_DIR: dataDir,
+    TB_BACKUP_DIR: join(dataDir, "backup"),
+    TB_LOG_LEVEL: "warn",
+  };
+  say(`boot-smoke: starting node ${entry} (port ${port}, health ${healthPath}, data ${dataDir})`);
+  let output = "";
+  const take = (d: Buffer): void => {
+    output = (output + d.toString("utf8")).slice(-65_536);
+  };
+  const tail = (): string[] => {
+    const lines = output.split("\n");
+    if (lines[lines.length - 1] === "") lines.pop();
+    return lines.slice(-40);
+  };
+  const child = spawn(process.execPath, [entry], { cwd: dir, env, stdio: ["ignore", "pipe", "pipe"] });
+  child.stdout.on("data", take);
+  child.stderr.on("data", take);
+  let gone: string | undefined;
+  const exited = new Promise<void>((res) => {
+    child.once("exit", (code, signal) => {
+      gone = signal ? `was killed by ${signal}` : `exited ${code}`;
+      res();
+    });
+    child.once("error", (e) => {
+      gone = `could not start: ${e.message}`;
+      res();
+    });
+  });
+  const killAtExit = (): void => {
+    child.kill("SIGKILL");
+  };
+  process.once("exit", killAtExit);
+  const url = `http://127.0.0.1:${port}${healthPath}`;
+  const ask = async (): Promise<{ ok: true; detail: string } | { ok: false; why: string }> => {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(2_000), headers: { connection: "close" } }); // no kept-alive socket holds the runner open;
+      const body: unknown = await r.json().catch(() => null);
+      return judgeHealth(r.status, body, version);
+    } catch (e) {
+      return { ok: false, why: `no answer (${(e as Error).name})` };
+    }
+  };
+  try {
+    // phase 1: the first healthy answer
+    const started = Date.now();
+    let first: { ok: true; detail: string } | undefined;
+    let last = "no answer";
+    while (Date.now() - started < timeoutMs) {
+      if (gone) return bad(`the app ${gone} before it was healthy`, tail());
+      const v = await ask();
+      if (v.ok) {
+        first = v;
+        break;
+      }
+      last = v.why;
+      await sleep(pollMs);
+    }
+    if (!first) {
+      await sleep(100); // let an exit event land, so a crash is named as a crash
+      if (gone) return bad(`the app ${gone} before it was healthy`, tail());
+      return bad(`no healthy answer from ${healthPath} within ${timeoutMs / 1000} s (last: ${last})`, tail());
+    }
+    // phase 2: still alive and healthy until `stableMs` after the first healthy answer
+    const firstAt = Date.now();
+    const until = firstAt + stableMs;
+    let polls = 1;
+    do {
+      await sleep(pollMs);
+      const v = await ask();
+      polls += 1;
+      if (!v.ok) {
+        await sleep(150);
+        const secs = ((Date.now() - firstAt) / 1000).toFixed(1);
+        return bad(
+          gone ? `the app ${gone} ${secs} s after the first healthy answer` : `health answer ${polls} (${secs} s after the first) was not healthy: ${v.why}`,
+          tail(),
+        );
+      }
+    } while (Date.now() < until);
+    if (gone) return bad(`the app ${gone} within ${stableMs / 1000} s after the first healthy answer`, tail());
+    // the UI import map (the files the SDK serves): every module URL names an existing file under dist/ui
+    const mapProblem = importMapProblem(join(dir, "dist", "ui"));
+    if (mapProblem) return bad(mapProblem, tail());
+    return {
+      ok: true,
+      message: `node ${entry} healthy on ${healthPath} (${first.detail}) for ${stableMs / 1000} s, ${polls} answers, version ${version}`,
+      tail: tail(),
+    };
+  } finally {
+    process.removeListener("exit", killAtExit);
+    if (!gone) {
+      child.kill("SIGTERM");
+      if (!(await settlesWithin(exited, o.killMs ?? BOOT_SMOKE_KILL_MS))) {
+        child.kill("SIGKILL");
+        await settlesWithin(exited, 2_000);
+      }
+    }
+    child.stdout.destroy();
+    child.stderr.destroy();
+  }
+}
+
+/** `dist/ui/index.html` (when it exists): every URL of its `<script type="importmap">` that is not a remote URL must be an existing file
+ *  under dist/ui (a leading "/" is read as the ui root). null = fine (also when there is no index.html or no import map). */
+export function importMapProblem(uiDir: string): string | null {
+  const indexFile = join(uiDir, "index.html");
+  if (!existsSync(indexFile)) return null;
+  const html = readFileSync(indexFile, "utf8");
+  const m = /<script[^>]+type=["']importmap["'][^>]*>([\s\S]*?)<\/script>/i.exec(html);
+  if (!m) return null;
+  let map: { imports?: Record<string, unknown>; scopes?: Record<string, Record<string, unknown>> };
+  try {
+    map = JSON.parse(m[1] as string) as typeof map;
+  } catch (e) {
+    return `dist/ui/index.html: the import map is not valid JSON (${(e as Error).message})`;
+  }
+  const urls = [...Object.values(map.imports ?? {}), ...Object.values(map.scopes ?? {}).flatMap((s) => Object.values(s))];
+  const missing: string[] = [];
+  for (const u of urls) {
+    if (typeof u !== "string") {
+      missing.push(JSON.stringify(u));
+      continue;
+    }
+    if (/^[a-z][a-z0-9+.-]*:/i.test(u) || u.startsWith("//")) continue; // remote or data: URL, not a dist file
+    const file = resolve(uiDir, u.replace(/[?#].*$/, "").replace(/^\/+/, ""));
+    const rel = relative(uiDir, file);
+    if (rel === "" || rel.startsWith("..") || !existsSync(file) || !statSync(file).isFile()) missing.push(u);
+  }
+  return missing.length ? `import map URLs with no file under dist/ui: ${missing.join(", ")}` : null;
+}
+
+/** Package dirs the smoke covers: every tealbrick-ci.json path that holds a tealbrick.manifest.json. */
+function bootSmokeDirs(cfg: CiConfig, root: string): string[] {
+  return cfg.paths.filter((p) => existsSync(join(root, p, MANIFEST_FILE)));
+}
+
+async function cmdBootSmoke(): Promise<void> {
+  const root = repoRoot();
+  const cfg = loadConfig(root);
+  if (cfg.kind !== "miniapp") {
+    log("boot-smoke: not a miniapp; skipped");
+    return;
+  }
+  if (cfg.bootSmoke) {
+    const problems = bootSmokeSkipProblems(cfg.bootSmoke, new Date().toISOString().slice(0, 10));
+    if (problems.length) fail(problems.join("\n"));
+    log(`boot-smoke: SKIPPED by tealbrick-ci.json bootSmoke until ${cfg.bootSmoke.expires}: ${cfg.bootSmoke.reason}`);
+    return;
+  }
+  const dirs = bootSmokeDirs(cfg, root);
+  if (dirs.length === 0) fail(`boot-smoke: kind miniapp but no path of tealbrick-ci.json holds a ${MANIFEST_FILE}`);
+  for (const p of dirs) {
+    const r = await bootSmoke(join(root, p), { log });
+    if (!r.ok) {
+      if (r.tail.length) {
+        console.error(`tb-ci: boot-smoke: last ${r.tail.length} line(s) of the app's output (${p}):`);
+        for (const l of r.tail) console.error(`  | ${redactLog(l)}`);
+      }
+      fail(`boot-smoke ${p}: ${r.message}`);
+    }
+    log(`boot-smoke OK in ${p}: ${r.message}`);
+  }
 }
 
 // ---------- ci-v9.14 (C262): OSV vulnerability scan ----------
@@ -4317,6 +4658,8 @@ async function main(argv: string[]): Promise<void> {
       return cmdGen();
     case "pre-release":
       return cmdPreRelease();
+    case "boot-smoke":
+      return cmdBootSmoke();
     case "osv-check":
       return cmdOsvCheck(rest);
     case "gh-build":
@@ -4353,7 +4696,7 @@ async function main(argv: string[]): Promise<void> {
       return cmdRegistryAddSource(rest);
     default:
       fail(
-        "usage: tb-ci setup|install|run <script>|gen|pre-release|osv-check <report.json>|audit-templates|gh-build|gh-publish|wp-build|wp-push|wp-publish|plan-images|release-record|package-pack|registry-add-desktop|registry-add-source|registry-sign|registry-sync|pin-tarballs|adopt|stamp",
+        "usage: tb-ci setup|install|run <script>|gen|pre-release|boot-smoke|osv-check <report.json>|audit-templates|gh-build|gh-publish|wp-build|wp-push|wp-publish|plan-images|release-record|package-pack|registry-add-desktop|registry-add-source|registry-sign|registry-sync|pin-tarballs|adopt|stamp",
       );
   }
 }
