@@ -3031,6 +3031,23 @@ test("ci-v9.14 osvLockfiles: a lockfile that clearly lists no package is not sca
   assert.equal(osvLockfileEmpty("pnpm-lock.yaml", "lockfileVersion: '9.0'\r\npackages: {} # none\r\n"), true, "CRLF + comment, positive evidence");
 });
 
+test("ci-v9.15 templates are valid YAML for Woodpecker: no unquoted list item contains ': ' or ' #' (ci-v9.14 broke on that)", () => {
+  for (const f of ["woodpecker/ci.yaml", "woodpecker/release.yaml"]) {
+    const lines = readFileSync(new URL(`./${f}`, import.meta.url), "utf8").split("\n");
+    lines.forEach((l, i) => {
+      const m = /^\s*- (.*)$/.exec(l);
+      if (!m) return;
+      const v = m[1] as string;
+      if (/^['"[{&*]/.test(v)) return; // quoted or flow scalar, anchor or alias
+      if (/^[A-Za-z_][\w-]*:( |$)/.test(v)) return; // a map item such as "- name: x"
+      assert.ok(
+        !v.includes(": ") && !v.includes(" #") && !v.endsWith(":"),
+        `${f}:${i + 1}: a plain YAML scalar cannot hold ': ' or ' #' (quote the item): ${v}`,
+      );
+    });
+  }
+});
+
 test("ci-v9.14 template: osv-scan after setup beside install, image pinned by digest, no secret; osv-check judges the report; pre-release waits", () => {
   const tpl = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
   const g = templateGraph(tpl);

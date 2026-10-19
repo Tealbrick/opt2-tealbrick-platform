@@ -4,7 +4,8 @@
 # Repo-specific settings go in tealbrick-ci.json. Change the standard in the platform repo.
 # Clean-up: images are built by kaniko inside the step container (no host daemon images,
 # no host socket, no privileged step); Woodpecker removes step containers and the workspace.
-# ci-v9.15 (C249): opt2-tealbrick-live-artifacts joins OPT2_REPOS (public; registry-sync + template audit). Steps unchanged.
+# ci-v9.15 (C249): opt2-tealbrick-live-artifacts joins OPT2_REPOS (public; registry-sync + template audit). FIX: ci-v9.14 does not
+#   parse in Woodpecker (osv-scan printf had ": " in a plain YAML list item = a map, not a string). Do not adopt ci-v9.14.
 # ci-v9.14 (C262): OSV vulnerability scan. New steps osv-scan (osv-scanner image pinned by digest; scans the pnpm/npm lockfiles that setup
 #   listed; osv.dev is the only network use; no secret) and osv-check (this runner judges the report: HIGH/CRITICAL/unknown severity fails
 #   unless tealbrick-ci.json osvIgnore covers it). Both run beside install; pre-release (and so image-check and release-record) waits for
@@ -72,7 +73,7 @@ steps:
     commands:
       - rm -f .tb-ci/osv.json
       - if [ ! -s .tb-ci/osv-lockfiles ]; then echo "osv-scan - no lockfile listed by setup; nothing to scan"; exit 0; fi
-      - printf '# ci-v9.14 template-owned osv-scanner config: no repo osv-scanner.toml is read; exceptions = tealbrick-ci.json osvIgnore only\n' > .tb-ci/osv-scanner.toml
+      - printf '# template-owned osv-scanner config (ci-v9.15) - no repo osv-scanner.toml is read - exceptions only via tealbrick-ci.json osvIgnore\n' > .tb-ci/osv-scanner.toml
       - set --; while IFS= read -r f; do set -- "$@" -L "./$f"; done < .tb-ci/osv-lockfiles
       - rc=0; /osv-scanner scan source --no-resolve --config .tb-ci/osv-scanner.toml --format json --output-file .tb-ci/osv.json "$@" || rc=$?
       - if [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ]; then echo "osv-scan FAILED (osv-scanner exit $rc) - osv.dev unreachable or a lockfile could not be read; a failed scan never counts as clean"; exit 1; fi
