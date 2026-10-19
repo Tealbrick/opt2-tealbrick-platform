@@ -124,5 +124,23 @@
         "bridge": "0.1.31"
       }
     }
+  },
+  {
+    "product": "inbox",
+    "version": "0.3.0",
+    "devReleaseId": "rel_01M56RDMDNTQQQAWEZ3KV4D91S",
+    "promotedAt": "2026-10-19T05:54:00Z",
+    "by": "coordinator",
+    "decision": "C221",
+    "evidence": {
+      "soakStart": "2026-10-18T05:53:19Z",
+      "soakEnd": "2026-10-19T05:53:19Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — Inbox 0.3.0 regression on qa1, 2026-10-18 06:05–06:22Z (QA lead): PASS, 0 findings",
+      "platform": {
+        "core": "6a17c9b66a8c38ce983ce5ac0ed73b4e65bc011c",
+        "bridge": "0.1.31"
+      }
+    }
   }
 ]
