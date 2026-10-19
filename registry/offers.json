@@ -117,12 +117,12 @@
     "name": "Governance",
     "products": ["fleet"],
     "major": 0,
-    "amount": 100,
+    "amount": 9900,
     "currency": "usd",
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
-      "test": "price_1UPhXmAG4xme4qTLLbDOejds",
-      "live": null
+      "test": "price_REPLACEtestGovernance9900",
+      "live": "price_REPLACEliveGovernance"
     }
   },
   {
