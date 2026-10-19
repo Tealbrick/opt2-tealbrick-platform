@@ -198,5 +198,25 @@
         "bridge": "0.1.31"
       }
     }
+  },
+  {
+    "product": "fleet",
+    "version": "0.2.3",
+    "devReleaseId": "rel_01M59QGB934DWRFDWQ6F0S8B7V",
+    "promotedAt": "2026-10-19T09:42:18Z",
+    "by": "coordinator",
+    "decision": "C284",
+    "expedited": true,
+    "incident": "INC-20261019-02",
+    "evidence": {
+      "soakStart": "2026-10-19T09:28:09Z",
+      "soakEnd": "2026-10-19T09:42:18Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — Governance (fleet) 0.2.3 roll + AC-14, AC-10.1, AC-11.2, AC-12.4, AC-4 on qa1, 2026-10-19 09:24–09:41Z (QA lead): PASS, 0 new findings; QA-GOV022-1 closed (0.2.3 starts and stays healthy)",
+      "platform": {
+        "core": "07cf8e5a66b857c723803c0d2c6c402a64b7e486",
+        "bridge": "0.1.31"
+      }
+    }
   }
 ]
