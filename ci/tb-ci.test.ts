@@ -13,7 +13,12 @@ import {
   assetChecksums,
   assetDecision,
   auditVerdict,
+  BOOT_SMOKE_HEALTHY,
+  BOOT_SMOKE_SKIP_MAX_DAYS,
   belowMinimum,
+  bootSmoke,
+  bootSmokeEntry,
+  bootSmokeSkipProblems,
   buildCandidateDoc,
   CANDIDATE_ASSET,
   CLI_DIST_BASE,
@@ -54,9 +59,11 @@ import {
   type IndexRelease,
   imageLabelProblems,
   imageNamespace,
+  importMapProblem,
   isDistTarballUrl,
   isReleaseTarballUrl,
   isSpecTarballUrl,
+  judgeHealth,
   KANIKO_PLATFORM,
   KNOWN_OWNERS,
   LEGACY_OWNERS,
@@ -95,6 +102,7 @@ import {
   packageReleaseCommands,
   packEntryTargets,
   packScriptOutputProblems,
+  parseBootSmoke,
   parseOsvIgnore,
   parseOsvReport,
   parsePackageTag,
@@ -105,6 +113,7 @@ import {
   promotionReleases,
   pushImages,
   REGISTRY_EXTRA_ASSETS,
+  redactLog,
   releaseChannel,
   releaseFileProblems,
   releaseGuard,
@@ -1212,10 +1221,14 @@ test("ci-v9.6 pre-release step: no-op without checks, passes a good gate, fails 
 
 test("ci-v9.6 template: pre-release step after gen; image-check and release-record wait for it; workflow runs the checks on the tag", () => {
   const tpl = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
-  assert.equal(stepScript(tpl, "pre-release"), "node .tb-ci/tb-ci.ts pre-release");
-  assert.match(tpl.split("\n")[0] as string, /ci-v9\.16/, "current template (ci-v9.16 keeps the ci-v9.6 pre-release step)");
+  assert.equal(
+    stepScript(tpl, "pre-release"),
+    "node .tb-ci/tb-ci.ts pre-release\nnode .tb-ci/tb-ci.ts boot-smoke",
+    "ci-v9.17: the boot smoke runs after the preReleaseChecks, in the same step",
+  );
+  assert.match(tpl.split("\n")[0] as string, /ci-v9\.17/, "current template (ci-v9.17 keeps the ci-v9.6 pre-release step)");
   const wf = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(wf, /TB_CI_REF: ci-v9\.16/);
+  assert.match(wf, /TB_CI_REF: ci-v9\.17/);
   const runner = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
   const build = runner.slice(runner.indexOf("async function cmdGhBuild"), runner.indexOf("async function cmdGhPublish"));
   assert.ok(build.indexOf("runPreReleaseChecks(cfg, root)") > 0, "gh-build runs the checks on the tag");
@@ -2229,7 +2242,7 @@ test("ci-v9.10 C222: a published asset is never replaced", () => {
 test("ci-v9.10 C222 template: release.yaml = build without secret, publish runs no repo code and alone reads the secret", () => {
   const rel = readFileSync(new URL("./woodpecker/release.yaml", import.meta.url), "utf8");
   const ci = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
-  assert.match(rel.split("\n")[0] as string, /template ci-v9\.16/);
+  assert.match(rel.split("\n")[0] as string, /template ci-v9\.17/);
   assert.match(rel, /GENERATED from Tealbrick\/opt2-tealbrick-platform: ci\/woodpecker\/release\.yaml/);
   const ref = /TB_CI_REF: (\S+)/.exec(ci)?.[1];
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
@@ -2400,11 +2413,11 @@ test("ci-v9.11 C232 template: step graph, secrets per step, no secret in any ste
   assert.match(rel, /GITHUB_TOKEN:\n {8}from_secret: tb_release_token\n/);
   // same template id and runner sha256 everywhere
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
-  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.16");
+  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.17");
   for (const m of rel.matchAll(/TB_CI_SHA256: "([^"]*)"/g)) assert.equal(m[1], sha);
   const actions = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(actions, /TB_CI_REF: ci-v9\.16/);
-  assert.match(ci, /TB_CI_REF: ci-v9\.16/);
+  assert.match(actions, /TB_CI_REF: ci-v9\.17/);
+  assert.match(ci, /TB_CI_REF: ci-v9\.17/);
   assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
 });
 
@@ -3126,7 +3139,7 @@ test("ci-v9.14 template: osv-scan after setup beside install, image pinned by di
   assert.equal(stepScript(tpl, "osv-check"), "node .tb-ci/tb-ci.ts osv-check .tb-ci/osv.json");
   // the id and the runner hash are the same in every generated file
   for (const f of ["woodpecker/ci.yaml", "woodpecker/release.yaml", "github/opt2-release.yml"])
-    assert.match(readFileSync(new URL(`./${f}`, import.meta.url), "utf8"), /ci-v9\.16/, f);
+    assert.match(readFileSync(new URL(`./${f}`, import.meta.url), "utf8"), /ci-v9\.17/, f);
   assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
   const readme = readFileSync(new URL("./README.md", import.meta.url), "utf8");
   assert.match(readme, /^ci-v9\.14 \(C262\)/m, "template history entry");
@@ -3202,4 +3215,347 @@ test("ci-v9.14 osv-check command: fails closed on a missing, empty or foreign re
   const none = runOsvCheck(null, cfg, false);
   assert.equal(none.code, 0, none.out);
   assert.match(none.out, /nothing was scanned/);
+});
+
+// ---------- ci-v9.17 (L68): boot smoke of the built miniapp ----------
+
+const bsRunner = new URL("./tb-ci.ts", import.meta.url).pathname;
+const bsToday = (offsetDays = 0): string => new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
+
+async function bsFreePort(): Promise<number> {
+  const { createServer } = await import("node:net");
+  return new Promise((res, rej) => {
+    const s = createServer();
+    s.once("error", rej);
+    s.listen(0, "127.0.0.1", () => {
+      const port = (s.address() as { port: number }).port;
+      s.close(() => res(port));
+    });
+  });
+}
+
+interface BsApp {
+  version?: string; // package.json version (default 1.2.3)
+  answers?: string; // version the health body names (default: the package version)
+  status?: number; // HTTP status of the health path (default 200)
+  health?: Record<string, unknown>; // extra/override health body fields (default status "ok")
+  dieAfterMs?: number; // exit 1 this long after listening
+  main?: string; // full body of dist/main.js (replaces the http server)
+  mainField?: string; // package.json "main"
+  ui?: string; // dist/ui/index.html
+  files?: Record<string, string>; // more files, repo-relative
+  noDist?: boolean;
+}
+
+/** A fixture miniapp: dist/main.js is a tiny node http server (or `main`). Returns its dir; `port` is the manifest runtime.port. */
+function bsApp(root: string, port: number, o: BsApp = {}): string {
+  const dir = mkdtempSync(join(root, "app-"));
+  const version = o.version ?? "1.2.3";
+  const pkg: Record<string, unknown> = { name: "fixture", version, type: "module", ...(o.mainField ? { main: o.mainField } : {}) };
+  writeFileSync(join(dir, "package.json"), JSON.stringify(pkg));
+  writeFileSync(join(dir, "tealbrick.manifest.json"), JSON.stringify({ id: "fixture", runtime: { port, healthPath: "/healthz" } }));
+  if (o.noDist) return dir;
+  const body = { status: "ok", version: o.answers ?? version, ...o.health };
+  const server = `import { createServer } from "node:http";
+import { writeFileSync } from "node:fs";
+writeFileSync("env-keys.json", JSON.stringify(Object.keys(process.env).sort()));
+const srv = createServer((req, res) => {
+  if (req.url !== "/healthz") { res.statusCode = 404; res.end("no"); return; }
+  res.statusCode = ${o.status ?? 200};
+  res.setHeader("content-type", "application/json");
+  res.end(JSON.stringify(${JSON.stringify(body)}));
+});
+srv.listen(${port}, () => { ${o.dieAfterMs ? `setTimeout(() => process.exit(1), ${o.dieAfterMs});` : ""} });
+process.on("SIGTERM", () => srv.close(() => process.exit(0)));
+`;
+  const files: Record<string, string> = { [o.mainField ?? "dist/main.js"]: o.main ?? server, ...o.files };
+  if (o.ui !== undefined) files["dist/ui/index.html"] = o.ui;
+  for (const [rel, text] of Object.entries(files)) {
+    mkdirSync(join(dir, rel, ".."), { recursive: true });
+    writeFileSync(join(dir, rel), text);
+  }
+  return dir;
+}
+
+/** Runs `tb-ci boot-smoke` in a fixture repo (CLI, real timings). TMPDIR keeps the app's data dir inside the test root. */
+function bsCli(dir: string, config: Record<string, unknown>, root: string): { code: number; out: string } {
+  writeFileSync(join(dir, "tealbrick-ci.json"), JSON.stringify(config));
+  const env: NodeJS.ProcessEnv = { ...process.env, CI_WORKSPACE: dir, CI_REPO_NAME: "opt2-tealbrick-fixture", TMPDIR: root };
+  try {
+    const out = execFileSync(process.execPath, [bsRunner, "boot-smoke"], { env, encoding: "utf8", stdio: "pipe" });
+    return { code: 0, out };
+  } catch (e) {
+    const err = e as { status?: number; stdout?: string; stderr?: string };
+    return { code: err.status ?? 1, out: `${err.stdout ?? ""}${err.stderr ?? ""}` };
+  }
+}
+
+/** Short timings for the cases whose verdict does not depend on the real 60 s / 5 s windows. */
+const bsFast = { timeoutMs: 2_500, stableMs: 600, pollMs: 100, killMs: 2_000 };
+
+async function withBsRoot<T>(fn: (root: string) => Promise<T> | T): Promise<T> {
+  const root = mkdtempSync(join(tmpdir(), "tb-bootsmoke-"));
+  try {
+    return await fn(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("ci-v9.17 boot smoke CLI: a healthy app passes; the child env holds exactly the six variables; the entry is dist/main.js from the package dir", async () => {
+  await withBsRoot(async (root) => {
+    const port = await bsFreePort();
+    const dir = bsApp(root, port);
+    const r = bsCli(dir, { kind: "miniapp" }, root);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /boot-smoke OK in \.: node dist\/main\.js healthy on \/healthz/);
+    // the child printed its env keys (no other variable, no secret, nothing inherited)
+    // (macOS itself adds __CF_USER_TEXT_ENCODING to every process; CI runs on Linux)
+    const keys = (JSON.parse(readFileSync(join(dir, "env-keys.json"), "utf8")) as string[]).filter((k) => k !== "__CF_USER_TEXT_ENCODING");
+    assert.deepEqual(keys, ["NODE_ENV", "PATH", "TB_BACKUP_DIR", "TB_DATA_DIR", "TB_LOG_LEVEL", "TB_STANDALONE"]);
+  });
+});
+
+test("ci-v9.17 boot smoke CLI: a crash at boot (ERR_MODULE_NOT_FOUND) fails and prints the child's last lines", async () => {
+  await withBsRoot(async (root) => {
+    const dir = bsApp(root, await bsFreePort(), { main: `import "./not-built.js";\n` });
+    const r = bsCli(dir, { kind: "miniapp" }, root);
+    assert.equal(r.code, 1);
+    assert.match(r.out, /the app exited 1 before it was healthy/);
+    assert.match(r.out, /ERR_MODULE_NOT_FOUND/);
+  });
+});
+
+test("ci-v9.17 boot smoke CLI: the output tail is redacted (tokens, control sequences)", async () => {
+  await withBsRoot(async (root) => {
+    const token = `${"gh"}p_${"A1b2".repeat(8)}`;
+    const dir = bsApp(root, await bsFreePort(), { main: `console.error("boot failed with ${token} and Bearer abcdefgh12345678");\nprocess.exit(1);\n` });
+    const r = bsCli(dir, { kind: "miniapp" }, root);
+    assert.equal(r.code, 1);
+    assert.ok(!r.out.includes(token), "the token never reaches the log");
+    assert.ok(!r.out.includes("abcdefgh12345678"));
+    assert.match(r.out, /\[redacted\]/);
+  });
+});
+
+test("ci-v9.17 boot smoke CLI: the process dies 2 s after the first 200 -> fail (the late-death gap)", async () => {
+  await withBsRoot(async (root) => {
+    const dir = bsApp(root, await bsFreePort(), { dieAfterMs: 2000 });
+    const r = bsCli(dir, { kind: "miniapp" }, root);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /the app exited 1 [12]\.\d s after the first healthy answer/);
+  });
+});
+
+test("ci-v9.17 boot smoke CLI: the manifest port is taken -> fail 'port <n> in use' (no start)", async () => {
+  await withBsRoot(async (root) => {
+    const { createServer } = await import("node:net");
+    const squatter = createServer();
+    await new Promise<void>((r) => squatter.listen(0, "127.0.0.1", r));
+    const port = (squatter.address() as { port: number }).port;
+    try {
+      const dir = bsApp(root, port);
+      const r = bsCli(dir, { kind: "miniapp" }, root);
+      assert.equal(r.code, 1);
+      assert.match(r.out, new RegExp(`port ${port} in use`));
+      assert.ok(!existsSync(join(dir, "env-keys.json")), "the app was not started");
+    } finally {
+      squatter.close();
+    }
+  });
+});
+
+test("ci-v9.17 boot smoke CLI: a non-miniapp kind logs 'not a miniapp; skipped' and exits 0", async () => {
+  await withBsRoot(async (root) => {
+    const dir = mkdtempSync(join(root, "lib-"));
+    for (const kind of ["library", "bridge", "service"]) {
+      const r = bsCli(dir, { kind }, root);
+      assert.equal(r.code, 0, `${kind}: ${r.out}`);
+      assert.match(r.out, /boot-smoke: not a miniapp; skipped/);
+    }
+  });
+});
+
+test("ci-v9.17 boot smoke CLI: opt-out bootSmoke {skip, reason, expires}: valid passes without starting; expired, > 90 days, short reason, bad shape fail", async () => {
+  await withBsRoot(async (root) => {
+    const dir = bsApp(root, await bsFreePort(), { noDist: true }); // nothing built: only the opt-out can make this pass
+    const skip = (expires: string, reason = "the app needs a database that CI lacks") => ({ kind: "miniapp", bootSmoke: { skip: true, reason, expires } });
+    const ok = bsCli(dir, skip(bsToday(30)), root);
+    assert.equal(ok.code, 0, ok.out);
+    assert.match(ok.out, /boot-smoke: SKIPPED by tealbrick-ci\.json bootSmoke until /);
+    const edge = bsCli(dir, skip(bsToday(BOOT_SMOKE_SKIP_MAX_DAYS)), root);
+    assert.equal(edge.code, 0, "exactly 90 days ahead is allowed");
+    const expired = bsCli(dir, skip(bsToday(-1)), root);
+    assert.equal(expired.code, 1);
+    assert.match(expired.out, /bootSmoke: the opt-out expired on /);
+    const today = bsCli(dir, skip(bsToday(0)), root);
+    assert.equal(today.code, 1, "expires is the first day it no longer applies");
+    const far = bsCli(dir, skip(bsToday(BOOT_SMOKE_SKIP_MAX_DAYS + 1)), root);
+    assert.equal(far.code, 1);
+    assert.match(far.out, /more than 90 days after today/);
+    const short = bsCli(dir, skip(bsToday(30), "later"), root);
+    assert.equal(short.code, 1);
+    assert.match(short.out, /bootSmoke\.reason must say why in at least 10 characters/);
+    assert.equal(bsCli(dir, { kind: "miniapp", bootSmoke: { skip: false, reason: "long enough reason", expires: bsToday(5) } }, root).code, 1);
+    assert.equal(bsCli(dir, { kind: "miniapp", bootSmoke: { skip: true, reason: "long enough reason", expires: bsToday(5), x: 1 } }, root).code, 1);
+    // without the opt-out the same unbuilt app fails: dist/ is missing, and it is never rebuilt
+    const unbuilt = bsCli(dir, { kind: "miniapp" }, root);
+    assert.equal(unbuilt.code, 1);
+    assert.match(unbuilt.out, /dist\/ is missing/);
+  });
+});
+
+test("ci-v9.17 boot smoke: wrong version, health 500, FAILED mode, restoring -> fail; needs_keys and ok -> pass", async () => {
+  await withBsRoot(async (root) => {
+    const run = async (o: BsApp) => bootSmoke(bsApp(root, await bsFreePort(), o), { ...bsFast, tmp: root });
+    const wrong = await run({ answers: "9.9.9" });
+    assert.equal(wrong.ok, false);
+    assert.match(wrong.message, /version "9\.9\.9", wanted "1\.2\.3"/);
+    const five = await run({ status: 500 });
+    assert.equal(five.ok, false);
+    assert.match(five.message, /HTTP 500/);
+    const failed = await run({ health: { status: "failed", failure: "app_schema_newer" } });
+    assert.equal(failed.ok, false, "the SDK failed mode answers 200 with the same version");
+    assert.match(failed.message, /status "failed", failure "app_schema_newer"/);
+    const restoring = await run({ health: { status: "restoring" } });
+    assert.equal(restoring.ok, false);
+    assert.match(restoring.message, /status "restoring"/);
+    const nostatus = await run({ health: { status: undefined } });
+    assert.equal(nostatus.ok, false);
+    const needsKeys = await run({ health: { status: "needs_keys" } });
+    assert.equal(needsKeys.ok, true, needsKeys.message);
+    assert.match(needsKeys.message, /status needs_keys/);
+    const ok = await run({});
+    assert.equal(ok.ok, true, ok.message);
+  });
+});
+
+test("ci-v9.17 boot smoke: the entry is package.json main when set; missing dist/ or entry fails clearly; the app is never rebuilt", async () => {
+  await withBsRoot(async (root) => {
+    const viaMain = bsApp(root, await bsFreePort(), { mainField: "build/server.js" });
+    const r = await bootSmoke(viaMain, { ...bsFast, tmp: root });
+    assert.equal(r.ok, true, r.message);
+    assert.match(r.message, /^node build\/server\.js /);
+    const noEntry = bsApp(root, await bsFreePort(), { main: "", files: { "dist/other.js": "" } });
+    rmSync(join(noEntry, "dist/main.js"));
+    const miss = await bootSmoke(noEntry, { ...bsFast, tmp: root });
+    assert.equal(miss.ok, false);
+    assert.match(miss.message, /the entry dist\/main\.js is missing/);
+    const noDist = await bootSmoke(bsApp(root, await bsFreePort(), { noDist: true }), { ...bsFast, tmp: root });
+    assert.equal(noDist.ok, false);
+    assert.match(noDist.message, /dist\/ is missing: the build step must run before the boot smoke/);
+  });
+});
+
+test("ci-v9.17 boot smoke: the UI import map must name existing files under dist/ui (fire on a missing one)", async () => {
+  await withBsRoot(async (root) => {
+    const map = (imports: Record<string, string>) => `<html><script type="importmap">${JSON.stringify({ imports })}</script></html>`;
+    const missing = bsApp(root, await bsFreePort(), { ui: map({ app: "./app.js", lib: "./vendor/lib.js" }), files: { "dist/ui/app.js": "" } });
+    const bad = await bootSmoke(missing, { ...bsFast, tmp: root });
+    assert.equal(bad.ok, false);
+    assert.match(bad.message, /import map URLs with no file under dist\/ui: \.\/vendor\/lib\.js/);
+    const full = bsApp(root, await bsFreePort(), {
+      ui: map({ app: "./app.js", lib: "./vendor/lib.js", cdn: "https://example.com/x.js" }),
+      files: { "dist/ui/app.js": "", "dist/ui/vendor/lib.js": "" },
+    });
+    const good = await bootSmoke(full, { ...bsFast, tmp: root });
+    assert.equal(good.ok, true, good.message);
+    // pure checks: no index.html or no import map is fine; escapes out of dist/ui and invalid JSON fail
+    const ui = join(full, "dist/ui");
+    assert.equal(importMapProblem(join(root, "nowhere")), null);
+    writeFileSync(join(ui, "index.html"), "<html></html>");
+    assert.equal(importMapProblem(ui), null);
+    writeFileSync(join(ui, "index.html"), map({ x: "../main.js" }));
+    assert.match(importMapProblem(ui) ?? "", /no file under dist\/ui: \.\.\/main\.js/);
+    writeFileSync(join(ui, "index.html"), `<script type="importmap">{nope</script>`);
+    assert.match(importMapProblem(ui) ?? "", /not valid JSON/);
+  });
+});
+
+test("ci-v9.17 boot smoke: the child is stopped on a failure path (SIGTERM, SIGKILL when it ignores it)", async () => {
+  await withBsRoot(async (root) => {
+    const port = await bsFreePort();
+    // a server that answers the WRONG version and ignores SIGTERM: the smoke fails, then must still free the port by SIGKILL
+    const stubborn = `import { createServer } from "node:http";
+process.on("SIGTERM", () => {});
+createServer((q, s) => { s.setHeader("content-type", "application/json"); s.end(JSON.stringify({ status: "ok", version: "0.0.0" })); }).listen(${port});
+`;
+    const dir = bsApp(root, port, { main: stubborn });
+    const r = await bootSmoke(dir, { timeoutMs: 800, stableMs: 100, pollMs: 100, killMs: 700, tmp: root });
+    assert.equal(r.ok, false);
+    assert.match(r.message, /no healthy answer from \/healthz within 0\.8 s/);
+    const { createServer } = await import("node:net");
+    await new Promise<void>((res, rej) => {
+      const s = createServer();
+      s.once("error", rej);
+      s.listen(port, () => s.close(() => res()));
+    }); // listening again proves the old child is gone
+  });
+});
+
+test("ci-v9.17 boot smoke: pure helpers (parseBootSmoke, bootSmokeSkipProblems, bootSmokeEntry, judgeHealth, validateConfig, schema)", () => {
+  assert.equal(parseBootSmoke(undefined), null);
+  const good = { skip: true, reason: "  needs a database CI lacks ", expires: "2026-12-01" };
+  assert.deepEqual(parseBootSmoke(good), { skip: true, reason: "needs a database CI lacks", expires: "2026-12-01" });
+  for (const bad of [
+    null,
+    [],
+    "x",
+    { ...good, skip: false },
+    { ...good, skip: "yes" },
+    { ...good, reason: "short" },
+    { ...good, expires: "2026-02-30" },
+    { ...good, expires: "soon" },
+    { ...good, extra: 1 },
+    { skip: true, reason: good.reason },
+  ])
+    assert.throws(() => parseBootSmoke(bad), Error, JSON.stringify(bad));
+  const skip = parseBootSmoke(good) as NonNullable<ReturnType<typeof parseBootSmoke>>;
+  assert.deepEqual(bootSmokeSkipProblems(skip, "2026-10-19"), []);
+  assert.match(bootSmokeSkipProblems(skip, "2026-12-01")[0] as string, /expired on 2026-12-01/);
+  assert.match(bootSmokeSkipProblems({ ...skip, expires: "2027-01-18" }, "2026-10-19")[0] as string, /latest allowed date is 2027-01-17/);
+  assert.deepEqual(bootSmokeSkipProblems({ ...skip, expires: "2027-01-17" }, "2026-10-19"), []);
+
+  assert.equal(bootSmokeEntry({}), "dist/main.js");
+  assert.equal(bootSmokeEntry({ main: "./dist/server.js" }), "dist/server.js");
+  for (const bad of ["/abs/main.js", "../x.js", "", 3]) assert.throws(() => bootSmokeEntry({ main: bad }));
+
+  assert.deepEqual([...BOOT_SMOKE_HEALTHY], ["ok", "needs_keys"]);
+  assert.equal(judgeHealth(200, { version: "1.0.0", status: "ok" }, "1.0.0").ok, true);
+  assert.equal(judgeHealth(200, { version: "1.0.0", status: "needs_keys" }, "1.0.0").ok, true);
+  for (const [code, body] of [
+    [500, { version: "1.0.0", status: "ok" }],
+    [200, null],
+    [200, []],
+    [200, { status: "ok" }],
+    [200, { version: "1.0.1", status: "ok" }],
+    [200, { version: "1.0.0" }],
+    [200, { version: "1.0.0", status: "failed", failure: "x" }],
+    [200, { version: "1.0.0", status: "restoring" }],
+    [200, { version: "1.0.0", status: 1 }],
+  ] as const)
+    assert.equal(judgeHealth(code, body, "1.0.0").ok, false, JSON.stringify([code, body]));
+
+  const cfg = validateConfig({ kind: "miniapp", bootSmoke: good }, "opt2-tealbrick-x");
+  assert.deepEqual(cfg.bootSmoke, { skip: true, reason: "needs a database CI lacks", expires: "2026-12-01" });
+  assert.equal(validateConfig({ kind: "miniapp" }, "opt2-tealbrick-x").bootSmoke, null);
+  assert.throws(() => validateConfig({ kind: "miniapp", bootSmoke: { skip: true } }, "opt2-tealbrick-x"));
+  const schema = JSON.parse(readFileSync(new URL("./tealbrick-ci.schema.json", import.meta.url), "utf8")) as {
+    properties: Record<string, { required?: string[]; additionalProperties?: boolean }>;
+  };
+  assert.deepEqual(schema.properties.bootSmoke?.required, ["skip", "reason", "expires"]);
+  assert.equal(schema.properties.bootSmoke?.additionalProperties, false);
+});
+
+test("ci-v9.17 boot smoke: the log redaction equals the one in ops/wp-failed.ts", async () => {
+  const { redact } = (await import("../ops/wp-failed.ts")) as { redact: (s: string) => string };
+  const samples = [
+    `token ${"gh"}p_${"x1".repeat(15)} here`,
+    `${"github"}_pat_${"A".repeat(30)}`,
+    `${"sk"}_${"live"}_${"Z9".repeat(8)} and ${"whsec"}_${"q".repeat(12)}`,
+    "Authorization: Bearer abcdefgh12345678",
+    "\u001b[31mred\u001b[0m \u0007 bell",
+    "plain text with sk_ prefix and Bearer x",
+  ];
+  for (const s of samples) assert.equal(redactLog(s), redact(s), s);
 });
