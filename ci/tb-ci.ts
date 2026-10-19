@@ -130,6 +130,7 @@ export const OPT2_REPOS = [
   "evolution",
   "cli",
   "observer", // C258a (ci-v9.13): public since 2026-10-18 (Martin yes, C249); was activated privately before its first release
+  "live-artifacts", // C249 (ci-v9.15): public since its flip (Coordinator); was activated privately before its first release
 ].map((n) => `opt2-tealbrick-${n}`);
 /** Repos in OPT2_REPOS whose GitHub repo does not exist yet. The template audit and registry-sync skip a 404 for these and ONLY
  *  these; a 404 for any other repo stays an alarm. Empty since 2026-10-15: opt2-tealbrick-cli exists (private, C173/C177). */

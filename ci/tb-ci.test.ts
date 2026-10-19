@@ -1203,9 +1203,9 @@ test("ci-v9.6 pre-release step: no-op without checks, passes a good gate, fails 
 test("ci-v9.6 template: pre-release step after gen; image-check and release-record wait for it; workflow runs the checks on the tag", () => {
   const tpl = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
   assert.equal(stepScript(tpl, "pre-release"), "node .tb-ci/tb-ci.ts pre-release");
-  assert.match(tpl.split("\n")[0] as string, /ci-v9\.14/, "current template (ci-v9.14 keeps the ci-v9.6 pre-release step)");
+  assert.match(tpl.split("\n")[0] as string, /ci-v9\.15/, "current template (ci-v9.15 keeps the ci-v9.6 pre-release step)");
   const wf = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(wf, /TB_CI_REF: ci-v9\.14/);
+  assert.match(wf, /TB_CI_REF: ci-v9\.15/);
   const runner = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
   const build = runner.slice(runner.indexOf("async function cmdGhBuild"), runner.indexOf("async function cmdGhPublish"));
   assert.ok(build.indexOf("runPreReleaseChecks(cfg, root)") > 0, "gh-build runs the checks on the tag");
@@ -1589,12 +1589,16 @@ test("C154: an unreadable private repo is a loud registry-sync rejection naming 
   assert.ok(!activate.includes('visibility: "public"'), "no repo is forced public in Woodpecker");
   // C203: the private Admin GUI repo is activated with private logs, outside OPT2_REPOS (it publishes nothing)
   assert.ok(/const ACTIVATE_PRIVATE[^=]*= \["opt2-tealbrick-admin"[,\]]/.test(activate), "Admin GUI repo activated as private");
-  // 2026-10-17: a new mini app repo is built privately before its first release (activated private, outside OPT2_REPOS)
-  assert.ok(/const ACTIVATE_PRIVATE[^=]*= \[[^\]]*"opt2-tealbrick-live-artifacts"/.test(activate), "Live Artifacts repo activated as private");
-  assert.ok(!OPT2_REPOS.includes("opt2-tealbrick-live-artifacts"), "Live Artifacts joins OPT2_REPOS only with its public flip");
   // C258a: Observer is public: an opt2 release repo, no longer activated privately, not in PRIVATE_REPOS
   assert.ok(!/const ACTIVATE_PRIVATE[^=]*= \[[^\]]*"opt2-tealbrick-observer"/.test(activate), "Observer left ACTIVATE_PRIVATE with its public flip");
   assert.ok(OPT2_REPOS.includes("opt2-tealbrick-observer"), "Observer joined OPT2_REPOS with its public flip");
+  // C249 (ci-v9.15): Live Artifacts is public: an opt2 release repo, no longer activated privately, not in PRIVATE_REPOS
+  assert.ok(
+    !/const ACTIVATE_PRIVATE[^=]*= \[[^\]]*"opt2-tealbrick-live-artifacts"/.test(activate),
+    "Live Artifacts left ACTIVATE_PRIVATE with its public flip",
+  );
+  assert.ok(OPT2_REPOS.includes("opt2-tealbrick-live-artifacts"), "Live Artifacts joined OPT2_REPOS with its public flip");
+  assert.ok(!PRIVATE_REPOS.includes("opt2-tealbrick-live-artifacts"), "Live Artifacts is public");
   assert.ok(!PRIVATE_REPOS.includes("opt2-tealbrick-observer"), "Observer is public");
   assert.ok(/const ACTIVATE_PRIVATE[^=]*= \[[^\]]*"opt2-tealbrick-creative"/.test(activate), "Creative repo activated as private");
   assert.ok(!OPT2_REPOS.includes("opt2-tealbrick-creative"), "Creative joins OPT2_REPOS only with its public flip");
@@ -2196,7 +2200,7 @@ test("ci-v9.10 C222: a published asset is never replaced", () => {
 test("ci-v9.10 C222 template: release.yaml = build without secret, publish runs no repo code and alone reads the secret", () => {
   const rel = readFileSync(new URL("./woodpecker/release.yaml", import.meta.url), "utf8");
   const ci = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
-  assert.match(rel.split("\n")[0] as string, /template ci-v9\.14/);
+  assert.match(rel.split("\n")[0] as string, /template ci-v9\.15/);
   assert.match(rel, /GENERATED from Tealbrick\/opt2-tealbrick-platform: ci\/woodpecker\/release\.yaml/);
   const ref = /TB_CI_REF: (\S+)/.exec(ci)?.[1];
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
@@ -2367,11 +2371,11 @@ test("ci-v9.11 C232 template: step graph, secrets per step, no secret in any ste
   assert.match(rel, /GITHUB_TOKEN:\n {8}from_secret: tb_release_token\n/);
   // same template id and runner sha256 everywhere
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
-  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.14");
+  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.15");
   for (const m of rel.matchAll(/TB_CI_SHA256: "([^"]*)"/g)) assert.equal(m[1], sha);
   const actions = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(actions, /TB_CI_REF: ci-v9\.14/);
-  assert.match(ci, /TB_CI_REF: ci-v9\.14/);
+  assert.match(actions, /TB_CI_REF: ci-v9\.15/);
+  assert.match(ci, /TB_CI_REF: ci-v9\.15/);
   assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
 });
 
@@ -3065,7 +3069,7 @@ test("ci-v9.14 template: osv-scan after setup beside install, image pinned by di
   assert.equal(stepScript(tpl, "osv-check"), "node .tb-ci/tb-ci.ts osv-check .tb-ci/osv.json");
   // the id and the runner hash are the same in every generated file
   for (const f of ["woodpecker/ci.yaml", "woodpecker/release.yaml", "github/opt2-release.yml"])
-    assert.match(readFileSync(new URL(`./${f}`, import.meta.url), "utf8"), /ci-v9\.14/, f);
+    assert.match(readFileSync(new URL(`./${f}`, import.meta.url), "utf8"), /ci-v9\.15/, f);
   assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
   const readme = readFileSync(new URL("./README.md", import.meta.url), "utf8");
   assert.match(readme, /^ci-v9\.14 \(C262\)/m, "template history entry");
