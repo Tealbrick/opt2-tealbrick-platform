@@ -2011,7 +2011,11 @@ async function cmdSetup(): Promise<void> {
   // ci-v9.14 (C262): the osv-scan step (osv-scanner image, no node) scans exactly the lockfiles listed here; osv-check judges the report
   writeFileSync(
     join(root, OSV_LOCKFILES_FILE),
-    osvLockfiles(cfg, (rel) => existsSync(join(root, rel)))
+    osvLockfiles(
+      cfg,
+      (rel) => existsSync(join(root, rel)),
+      (rel) => readFileSync(join(root, rel), "utf8"),
+    )
       .map((l) => `${l}\n`)
       .join(""),
   );
@@ -2232,6 +2236,10 @@ function cmdPreRelease(): void {
 
 /** Written by `setup`: one repo-relative lockfile per line (empty file = nothing to scan). Read by the osv-scan step's shell. */
 export const OSV_LOCKFILES_FILE = ".tb-ci/osv-lockfiles";
+/** Written by the osv-scan step itself (never by the repo) and passed as `--config`: osv-scanner then reads NO repo-owned
+ *  osv-scanner.toml (its default looks next to each lockfile and in parent folders), so an exception exists only as a policy-checked
+ *  tealbrick-ci.json osvIgnore entry. */
+export const OSV_CONFIG_FILE = ".tb-ci/osv-scanner.toml";
 /** Written by the osv-scan step (osv-scanner `--format json`), read by `osv-check`. */
 export const OSV_REPORT_FILE = ".tb-ci/osv.json";
 /** CVSS base score thresholds (FIRST): HIGH 7.0-8.9, CRITICAL 9.0-10.0. A finding at or above OSV_HIGH fails the check. */
@@ -2297,17 +2305,44 @@ function osvDayString(day: number): string {
   return new Date(day * 86_400_000).toISOString().slice(0, 10);
 }
 
-/** The lockfiles osv-scan must scan: the pnpm or npm lockfile of every project path that has a package.json. Pure over `exists`. */
-export function osvLockfiles(cfg: { paths: string[] }, exists: (rel: string) => boolean): string[] {
+/** The lockfiles osv-scan must scan: the pnpm or npm lockfile of every project path that has a package.json. Pure over `exists`
+ *  and `read`. A lockfile that CLEARLY lists no package (osvLockfileEmpty) is left out: it has nothing to scan and osv-scanner
+ *  exits 128 ("no packages found") on it, which the scan step treats as a failure. */
+export function osvLockfiles(cfg: { paths: string[] }, exists: (rel: string) => boolean, read?: (rel: string) => string): string[] {
   const out: string[] = [];
   for (const p of cfg.paths) {
     const dir = posix.normalize(p);
     const at = (f: string): string => (dir === "." ? f : `${dir}/${f}`);
     if (!exists(at("package.json"))) continue;
     const lock = ["pnpm-lock.yaml", "package-lock.json"].find((f) => exists(at(f)));
-    if (lock && !out.includes(at(lock))) out.push(at(lock));
+    if (!lock || out.includes(at(lock))) continue;
+    if (read && osvLockfileEmpty(lock, read(at(lock)))) continue;
+    out.push(at(lock));
   }
   return out;
+}
+
+/** True only when the lockfile text certainly lists no package (fail closed: anything unclear is scanned). pnpm: no top-level
+ *  `packages:` key, or `packages: {}`. npm (lockfileVersion >= 2): no `packages` entry other than the root "" and no
+ *  `dependencies`. An unreadable or unparsable lockfile is NOT empty (osv-scanner then fails on it). */
+export function osvLockfileEmpty(name: string, text: string): boolean {
+  if (name === "pnpm-lock.yaml") {
+    const m = /^packages:(.*)$/m.exec(text);
+    return m === null || m[1]?.trim() === "{}";
+  }
+  if (name === "package-lock.json") {
+    try {
+      const j = JSON.parse(text) as { lockfileVersion?: unknown; packages?: unknown; dependencies?: unknown };
+      if (typeof j.lockfileVersion !== "number" || j.lockfileVersion < 2) return false;
+      if (j.packages === null || typeof j.packages !== "object" || Array.isArray(j.packages)) return false;
+      const deps = j.dependencies;
+      if (deps !== undefined && (deps === null || typeof deps !== "object" || Object.keys(deps).length > 0)) return false;
+      return Object.keys(j.packages).every((k) => k === "");
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 export type OsvSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "UNKNOWN";
@@ -2485,7 +2520,11 @@ function cmdOsvCheck(args: string[]): void {
   const root = repoRoot();
   const cfg = loadConfig(root);
   const today = new Date().toISOString().slice(0, 10);
-  const expected = osvLockfiles(cfg, (rel) => existsSync(join(root, rel)));
+  const expected = osvLockfiles(
+    cfg,
+    (rel) => existsSync(join(root, rel)),
+    (rel) => readFileSync(join(root, rel), "utf8"),
+  );
   let findings: OsvFinding[] = [];
   if (expected.length === 0) log("osv-check: no node lockfile in this repo (no package.json under tealbrick-ci.json paths); nothing was scanned");
   else {

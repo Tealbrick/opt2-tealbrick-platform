@@ -72,11 +72,13 @@ import {
   normalizeDistBase,
   normalizeLegacyOwners,
   OPT2_REPOS,
+  OSV_CONFIG_FILE,
   OSV_IGNORE_MAX_DAYS,
   OSV_LOCKFILES_FILE,
   OSV_REPORT_FILE,
   OWNER,
   osvIgnoreProblems,
+  osvLockfileEmpty,
   osvLockfiles,
   osvSeverityOf,
   osvTable,
@@ -2984,6 +2986,32 @@ test("ci-v9.14 osvLockfiles: the pnpm or npm lockfile of each node path (setup w
   assert.deepEqual(osvLockfiles({ paths: ["gone"] }, has), [], "no package.json = nothing to scan");
   assert.equal(OSV_LOCKFILES_FILE, ".tb-ci/osv-lockfiles");
   assert.equal(OSV_REPORT_FILE, ".tb-ci/osv.json");
+  assert.equal(OSV_CONFIG_FILE, ".tb-ci/osv-scanner.toml");
+});
+
+test("ci-v9.14 osvLockfiles: a lockfile that clearly lists no package is not scanned (osv-scanner exit 128); anything unclear is", () => {
+  const files: Record<string, string> = {
+    "package.json": "{}",
+    "pnpm-lock.yaml": "lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n",
+    "a/package.json": "{}",
+    "a/pnpm-lock.yaml":
+      "lockfileVersion: '9.0'\n\nimporters:\n  .:\n    dependencies:\n      x:\n        specifier: 1.0.0\n        version: 1.0.0\n\npackages:\n\n  x@1.0.0:\n    resolution: {integrity: sha512-x}\n",
+    "b/package.json": "{}",
+    "b/package-lock.json": JSON.stringify({ lockfileVersion: 3, packages: { "": { name: "b" } } }),
+    "c/package.json": "{}",
+    "c/package-lock.json": JSON.stringify({ lockfileVersion: 3, packages: { "": {}, "node_modules/x": { version: "1.0.0" } } }),
+    "d/package.json": "{}",
+    "d/package-lock.json": "{ not json",
+  };
+  const has = (r: string): boolean => r in files;
+  const read = (r: string): string => files[r] as string;
+  assert.deepEqual(osvLockfiles({ paths: [".", "a", "b", "c", "d"] }, has, read), ["a/pnpm-lock.yaml", "c/package-lock.json", "d/package-lock.json"]);
+  assert.deepEqual(osvLockfiles({ paths: ["."] }, has), ["pnpm-lock.yaml"], "without read: listed as before");
+  assert.equal(osvLockfileEmpty("pnpm-lock.yaml", "lockfileVersion: '9.0'\npackages: {}\n"), true);
+  assert.equal(osvLockfileEmpty("pnpm-lock.yaml", "lockfileVersion: '9.0'\npackages:\n  x@1.0.0: {}\n"), false);
+  assert.equal(osvLockfileEmpty("package-lock.json", JSON.stringify({ lockfileVersion: 1, dependencies: {} })), false, "v1 npm lockfile: not judged, scanned");
+  assert.equal(osvLockfileEmpty("package-lock.json", JSON.stringify({ lockfileVersion: 2, packages: { "": {} }, dependencies: { x: {} } })), false);
+  assert.equal(osvLockfileEmpty("yarn.lock", ""), false);
 });
 
 test("ci-v9.14 template: osv-scan after setup beside install, image pinned by digest, no secret; osv-check judges the report; pre-release waits", () => {
@@ -3008,6 +3036,13 @@ test("ci-v9.14 template: osv-scan after setup beside install, image pinned by di
   assert.ok(script.includes("--format json --output-file .tb-ci/osv.json"));
   assert.ok(script.includes(OSV_LOCKFILES_FILE), "scans the lockfiles setup listed");
   assert.ok(script.includes('-L "./$f"'));
+  // review S2: osv-scanner reads osv-scanner.toml next to a lockfile by default; a repo file would bypass osvIgnore's policy
+  assert.ok(script.includes(`--config ${OSV_CONFIG_FILE}`), "the scan passes the template-owned config");
+  assert.ok(
+    script.indexOf(`> ${OSV_CONFIG_FILE}`) >= 0 && script.indexOf(`> ${OSV_CONFIG_FILE}`) < script.indexOf("/osv-scanner scan"),
+    "the step writes that config itself, before the scan",
+  );
+  assert.doesNotMatch(script, /IgnoredVulns|ignoreUntil/, "the template config ignores nothing");
   assert.match(
     script,
     /"\$rc" -ne 0 \] && \[ "\$rc" -ne 1 \]; then .*exit 1/,
@@ -3030,7 +3065,7 @@ function runOsvCheck(report: unknown | null, config: Record<string, unknown>, lo
   try {
     writeFileSync(join(dir, "tealbrick-ci.json"), JSON.stringify(config));
     writeFileSync(join(dir, "package.json"), "{}");
-    if (lock) writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    if (lock) writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n\npackages:\n\n  x@1.0.0:\n    resolution: {integrity: sha512-x}\n");
     mkdirSync(join(dir, ".tb-ci"));
     if (report !== null) writeFileSync(join(dir, OSV_REPORT_FILE), typeof report === "string" ? report : JSON.stringify(report));
     const env: NodeJS.ProcessEnv = { ...process.env, CI_WORKSPACE: dir, CI_REPO_NAME: repo };

@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 env:
   TB_CI_REF: ci-v9.14
-  TB_CI_SHA256: "938d305b86e6eb2d3ff5d044c81428d59aef25d8edd45d6b85ee39d52dec98a1"
+  TB_CI_SHA256: "b14cda1b25c7eddc439c8affe8fbbf31dbad9d2514cb5aab8322e52d8e0038a3"
 jobs:
   build:
     runs-on: ubuntu-24.04
