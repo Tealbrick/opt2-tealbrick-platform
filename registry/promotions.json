@@ -142,5 +142,23 @@
         "bridge": "0.1.31"
       }
     }
+  },
+  {
+    "product": "evolution",
+    "version": "0.2.13",
+    "devReleaseId": "rel_01M56VH3QJNCY04HGTG2RT7Z3G",
+    "promotedAt": "2026-10-19T07:04:20Z",
+    "by": "coordinator",
+    "decision": "C221",
+    "evidence": {
+      "soakStart": "2026-10-18T07:03:31Z",
+      "soakEnd": "2026-10-19T07:03:31Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — Evolution 0.2.13 roll + A1–A4 + R3-1 repro on qa1, 2026-10-18 07:00–07:22Z (QA lead): PASS, 0 findings",
+      "platform": {
+        "core": "6a17c9b66a8c38ce983ce5ac0ed73b4e65bc011c",
+        "bridge": "0.1.31"
+      }
+    }
   }
 ]
