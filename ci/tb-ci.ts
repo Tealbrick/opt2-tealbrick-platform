@@ -2322,13 +2322,15 @@ export function osvLockfiles(cfg: { paths: string[] }, exists: (rel: string) => 
   return out;
 }
 
-/** True only when the lockfile text certainly lists no package (fail closed: anything unclear is scanned). pnpm: no top-level
- *  `packages:` key, or `packages: {}`. npm (lockfileVersion >= 2): no `packages` entry other than the root "" and no
+/** True only on POSITIVE evidence that the lockfile lists no package (fail closed: anything unclear is scanned). pnpm: the word
+ *  `packages` does not occur at all, or its ONLY occurrence is a top-level line `packages: {}` (any other layout — indented,
+ *  quoted, flow style — is scanned). npm (lockfileVersion >= 2): no `packages` entry other than the root "" and no
  *  `dependencies`. An unreadable or unparsable lockfile is NOT empty (osv-scanner then fails on it). */
 export function osvLockfileEmpty(name: string, text: string): boolean {
   if (name === "pnpm-lock.yaml") {
-    const m = /^packages:(.*)$/m.exec(text);
-    return m === null || m[1]?.trim() === "{}";
+    const n = text.match(/packages/g)?.length ?? 0;
+    if (n === 0) return true;
+    return n === 1 && /^packages:[ \t]*\{\}[ \t]*(#[^\r\n]*)?\r?$/m.test(text);
   }
   if (name === "package-lock.json") {
     try {

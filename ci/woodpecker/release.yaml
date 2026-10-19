@@ -43,7 +43,7 @@ steps:
     environment:
       CI: "true"
       TB_CI_REF: ci-v9.14
-      TB_CI_SHA256: "b14cda1b25c7eddc439c8affe8fbbf31dbad9d2514cb5aab8322e52d8e0038a3"
+      TB_CI_SHA256: "76d9123d818e8fcd88b20a58d20576110d1c3c071314ce44a8383394a734ee4f"
       NPM_CONFIG_UPDATE_NOTIFIER: "false"
       NPM_CONFIG_FUND: "false"
       NPM_CONFIG_AUDIT: "false"
@@ -65,7 +65,7 @@ steps:
     environment:
       CI: "true"
       TB_CI_REF: ci-v9.14
-      TB_CI_SHA256: "b14cda1b25c7eddc439c8affe8fbbf31dbad9d2514cb5aab8322e52d8e0038a3"
+      TB_CI_SHA256: "76d9123d818e8fcd88b20a58d20576110d1c3c071314ce44a8383394a734ee4f"
       GHCR_TOKEN:
         from_secret: tb_ghcr_token
     commands:
@@ -82,7 +82,7 @@ steps:
     environment:
       CI: "true"
       TB_CI_REF: ci-v9.14
-      TB_CI_SHA256: "b14cda1b25c7eddc439c8affe8fbbf31dbad9d2514cb5aab8322e52d8e0038a3"
+      TB_CI_SHA256: "76d9123d818e8fcd88b20a58d20576110d1c3c071314ce44a8383394a734ee4f"
       GITHUB_TOKEN:
         from_secret: tb_release_token
     commands:

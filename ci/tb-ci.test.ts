@@ -3012,6 +3012,19 @@ test("ci-v9.14 osvLockfiles: a lockfile that clearly lists no package is not sca
   assert.equal(osvLockfileEmpty("package-lock.json", JSON.stringify({ lockfileVersion: 1, dependencies: {} })), false, "v1 npm lockfile: not judged, scanned");
   assert.equal(osvLockfileEmpty("package-lock.json", JSON.stringify({ lockfileVersion: 2, packages: { "": {} }, dependencies: { x: {} } })), false);
   assert.equal(osvLockfileEmpty("yarn.lock", ""), false);
+  // re-review S2: only positive evidence counts as empty; every other layout of a lockfile WITH packages is scanned
+  const pkg = "  x@1.0.0:\n    resolution: {integrity: sha512-x}\n";
+  for (const text of [
+    `  lockfileVersion: '9.0'\n  packages:\n  ${pkg}`, // whole document indented
+    `lockfileVersion: '9.0'\n"packages":\n${pkg}`, // quoted key
+    `lockfileVersion: '9.0'\npackages :\n${pkg}`, // space before the colon
+    "{lockfileVersion: '9.0', packages: {x@1.0.0: {resolution: {integrity: sha512-x}}}}\n", // flow style
+    `lockfileVersion: '9.0'\r\npackages:\r\n${pkg.replace(/\n/g, "\r\n")}`, // CRLF
+    `lockfileVersion: '9.0'\npackages: # comment\n${pkg}`,
+    `lockfileVersion: '9.0'\npackages: {}\n---\npackages:\n${pkg}`, // a second document
+  ])
+    assert.equal(osvLockfileEmpty("pnpm-lock.yaml", text), false, JSON.stringify(text));
+  assert.equal(osvLockfileEmpty("pnpm-lock.yaml", "lockfileVersion: '9.0'\r\npackages: {} # none\r\n"), true, "CRLF + comment, positive evidence");
 });
 
 test("ci-v9.14 template: osv-scan after setup beside install, image pinned by digest, no secret; osv-check judges the report; pre-release waits", () => {
