@@ -72,7 +72,17 @@ import {
   normalizeDistBase,
   normalizeLegacyOwners,
   OPT2_REPOS,
+  OSV_CONFIG_FILE,
+  OSV_IGNORE_MAX_DAYS,
+  OSV_LOCKFILES_FILE,
+  OSV_REPORT_FILE,
   OWNER,
+  osvIgnoreProblems,
+  osvLockfileEmpty,
+  osvLockfiles,
+  osvSeverityOf,
+  osvTable,
+  osvVerdict,
   PENDING_REPOS,
   PG_DONE_MARKER,
   PG_MARKER,
@@ -84,6 +94,8 @@ import {
   packageReleaseCommands,
   packEntryTargets,
   packScriptOutputProblems,
+  parseOsvIgnore,
+  parseOsvReport,
   parsePackageTag,
   parsePackScripts,
   parsePreReleaseChecks,
@@ -774,7 +786,23 @@ test("ci-v9.3 template: every step has depends_on, the graph is acyclic and keep
   const g = templateGraph(tpl);
   assert.deepEqual(
     [...g.keys()],
-    ["secret-scan", "setup", "install", "typecheck", "lint", "postgres", "unit", "conformance", "build", "gen", "pre-release", "image-check", "release-record"],
+    [
+      "secret-scan",
+      "setup",
+      "install",
+      "osv-scan",
+      "osv-check",
+      "typecheck",
+      "lint",
+      "postgres",
+      "unit",
+      "conformance",
+      "build",
+      "gen",
+      "pre-release",
+      "image-check",
+      "release-record",
+    ],
   );
   for (const [name, s] of g) {
     assert.equal(s.detach, false, `${name}: no detached steps (they end red on this Woodpecker)`);
@@ -796,8 +824,10 @@ test("ci-v9.3 template: every step has depends_on, the graph is acyclic and keep
   const level = (n: string): number => 1 + Math.max(0, ...(g.get(n)?.deps ?? []).map(level));
   assert.equal(level("postgres"), level("unit"), "postgres ends after unit, so it must share unit's stage (an earlier stage deadlocks)");
   // the node chain is the old sequential order
-  const chain = ["secret-scan", "setup", "install", "typecheck", "lint", "unit", "conformance", "build", "gen", "pre-release"];
+  const chain = ["secret-scan", "setup", "install", "typecheck", "lint", "unit", "conformance", "build", "gen"];
   for (let i = 1; i < chain.length; i++) assert.deepEqual(g.get(chain[i] as string)?.deps, [chain[i - 1]], `${chain[i]} follows ${chain[i - 1]}`);
+  // ci-v9.14 (C262): pre-release also waits for the OSV check
+  assert.deepEqual(g.get("pre-release")?.deps, ["gen", "osv-check"]);
   assert.deepEqual(g.get("secret-scan")?.deps, []);
   // postgres runs BESIDE unit (Woodpecker runs a graph in stages: a stage ends when all its steps end, so postgres, which
   // ends after unit, must be in unit's stage), never in front of it; nothing may depend on it except through that stage.
@@ -1173,9 +1203,9 @@ test("ci-v9.6 pre-release step: no-op without checks, passes a good gate, fails 
 test("ci-v9.6 template: pre-release step after gen; image-check and release-record wait for it; workflow runs the checks on the tag", () => {
   const tpl = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
   assert.equal(stepScript(tpl, "pre-release"), "node .tb-ci/tb-ci.ts pre-release");
-  assert.match(tpl.split("\n")[0] as string, /ci-v9\.13/, "current template (ci-v9.13 keeps the ci-v9.6 pre-release step)");
+  assert.match(tpl.split("\n")[0] as string, /ci-v9\.14/, "current template (ci-v9.14 keeps the ci-v9.6 pre-release step)");
   const wf = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(wf, /TB_CI_REF: ci-v9\.13/);
+  assert.match(wf, /TB_CI_REF: ci-v9\.14/);
   const runner = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
   const build = runner.slice(runner.indexOf("async function cmdGhBuild"), runner.indexOf("async function cmdGhPublish"));
   assert.ok(build.indexOf("runPreReleaseChecks(cfg, root)") > 0, "gh-build runs the checks on the tag");
@@ -2166,7 +2196,7 @@ test("ci-v9.10 C222: a published asset is never replaced", () => {
 test("ci-v9.10 C222 template: release.yaml = build without secret, publish runs no repo code and alone reads the secret", () => {
   const rel = readFileSync(new URL("./woodpecker/release.yaml", import.meta.url), "utf8");
   const ci = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
-  assert.match(rel.split("\n")[0] as string, /template ci-v9\.13/);
+  assert.match(rel.split("\n")[0] as string, /template ci-v9\.14/);
   assert.match(rel, /GENERATED from Tealbrick\/opt2-tealbrick-platform: ci\/woodpecker\/release\.yaml/);
   const ref = /TB_CI_REF: (\S+)/.exec(ci)?.[1];
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
@@ -2337,11 +2367,11 @@ test("ci-v9.11 C232 template: step graph, secrets per step, no secret in any ste
   assert.match(rel, /GITHUB_TOKEN:\n {8}from_secret: tb_release_token\n/);
   // same template id and runner sha256 everywhere
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
-  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.13");
+  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.14");
   for (const m of rel.matchAll(/TB_CI_SHA256: "([^"]*)"/g)) assert.equal(m[1], sha);
   const actions = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(actions, /TB_CI_REF: ci-v9\.13/);
-  assert.match(ci, /TB_CI_REF: ci-v9\.13/);
+  assert.match(actions, /TB_CI_REF: ci-v9\.14/);
+  assert.match(ci, /TB_CI_REF: ci-v9\.14/);
   assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
 });
 
@@ -2756,4 +2786,359 @@ test("ci-v9.11 C232: woodpecker-activate keeps tb_ghcr_token (and the bridge's t
   assert.ok(!/sec\.value|\.value\b/.test(src.slice(src.indexOf("for (const k of keep)"), src.indexOf("for (const w of want)"))), "the value is never read");
   // every other secret is still deleted
   assert.ok(src.includes('"deleted (not needed here)"') || src.includes("deleted (not needed here)"));
+});
+
+// ---------- ci-v9.14 (C262): OSV vulnerability scan ----------
+
+const OSV_DIGEST = /^ghcr\.io\/google\/osv-scanner:v2\.6\.0@sha256:[0-9a-f]{64}$/;
+
+/** One vulnerability in the shape osv-scanner v2.6.0 writes (`--format json`; read from a real run on lodash/minimist/semver). */
+interface OsvFix {
+  id: string;
+  pkg?: string;
+  version?: string;
+  score?: string; // group max_severity
+  label?: string; // database_specific.severity
+  aliases?: string[];
+  fixed?: string[];
+}
+function osvReport(fixes: OsvFix[], source = "/w/pnpm-lock.yaml"): unknown {
+  const byPkg = new Map<string, OsvFix[]>();
+  for (const f of fixes)
+    byPkg.set(`${f.pkg ?? "left-pad"}@${f.version ?? "1.0.0"}`, [...(byPkg.get(`${f.pkg ?? "left-pad"}@${f.version ?? "1.0.0"}`) ?? []), f]);
+  return {
+    results: [
+      {
+        source: { path: source, type: "lockfile" },
+        packages: [...byPkg].map(([key, vs]) => {
+          const [name, version] = key.split("@") as [string, string];
+          return {
+            package: { name, version, ecosystem: "npm" },
+            groups: vs.map((f) => ({ ids: [f.id], aliases: [...(f.aliases ?? []), f.id], ...(f.score === undefined ? {} : { max_severity: f.score }) })),
+            vulnerabilities: vs.map((f) => ({
+              id: f.id,
+              aliases: f.aliases ?? [],
+              summary: "x",
+              severity: [{ type: "CVSS_V3", score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" }],
+              database_specific: f.label === undefined ? {} : { severity: f.label },
+              affected: [
+                {
+                  package: { name, ecosystem: "npm" },
+                  ranges: [{ type: "SEMVER", events: [{ introduced: "0" }, ...(f.fixed ?? []).map((x) => ({ fixed: x }))] }],
+                },
+              ],
+            })),
+          };
+        }),
+      },
+    ],
+    experimental_config: { licenses: { summary: false, allowlist: null } },
+  };
+}
+const TODAY = "2026-10-18";
+const plusDays = (n: number): string => new Date(Date.parse(`${TODAY}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+const verdictOf = (fixes: OsvFix[], ignores: unknown[] = []) => osvVerdict(parseOsvReport(osvReport(fixes)), parseOsvIgnore(ignores), TODAY);
+const ign = (id: string, expires: string, reason = "dev-only dependency, not reachable") => ({ id, reason, expires });
+
+test("ci-v9.14 osv-check: severity thresholds (HIGH >= 7.0, CRITICAL >= 9.0; MEDIUM and LOW print only; unknown counts as HIGH)", () => {
+  assert.equal(osvSeverityOf(9.0), "CRITICAL");
+  assert.equal(osvSeverityOf(8.9), "HIGH");
+  assert.equal(osvSeverityOf(7.0), "HIGH");
+  assert.equal(osvSeverityOf(6.9), "MEDIUM");
+  assert.equal(osvSeverityOf(4.0), "MEDIUM");
+  assert.equal(osvSeverityOf(3.9), "LOW");
+  assert.equal(osvSeverityOf(null), "UNKNOWN");
+  const high = verdictOf([{ id: "GHSA-aaaa-bbbb-cccc", score: "7.5", pkg: "semver", version: "5.7.1", fixed: ["5.7.2", "6.3.1", "7.5.2", "1.0.0"] }]);
+  assert.deepEqual(
+    high.blocking.map((f) => [f.id, f.severity, f.score]),
+    [["GHSA-aaaa-bbbb-cccc", "HIGH", 7.5]],
+  );
+  assert.deepEqual(high.blocking[0]?.fixed, ["5.7.2", "6.3.1", "7.5.2"], "only fixed versions above the installed one, ascending");
+  assert.equal(verdictOf([{ id: "GHSA-aaaa-bbbb-cccc", score: "9.8" }]).blocking[0]?.severity, "CRITICAL");
+  const mild = verdictOf([
+    { id: "GHSA-1111-1111-1111", score: "6.9" },
+    { id: "GHSA-2222-2222-2222", score: "2.0", label: "LOW" },
+  ]);
+  assert.equal(mild.blocking.length, 0, "MEDIUM and LOW do not fail");
+  assert.equal(mild.info.length, 2, "they are printed");
+  // the advisory label counts when it is higher than the score (fail closed); the score counts when the label is missing
+  assert.equal(verdictOf([{ id: "GHSA-aaaa-bbbb-cccc", score: "5.3", label: "HIGH" }]).blocking.length, 1);
+  assert.equal(verdictOf([{ id: "GHSA-aaaa-bbbb-cccc", label: "CRITICAL" }]).blocking[0]?.severity, "CRITICAL");
+  assert.equal(verdictOf([{ id: "GHSA-aaaa-bbbb-cccc", label: "MODERATE" }]).blocking.length, 0);
+});
+
+test("ci-v9.14 osv-check: unknown severity fails closed (no score, no label, or a 0.0 score without a label)", () => {
+  for (const f of [
+    { id: "GHSA-aaaa-bbbb-cccc" },
+    { id: "GHSA-aaaa-bbbb-cccc", score: "0.0" },
+    { id: "GHSA-aaaa-bbbb-cccc", score: "" },
+    { id: "GHSA-aaaa-bbbb-cccc", label: "WEIRD" },
+  ]) {
+    const v = verdictOf([f]);
+    assert.equal(v.blocking.length, 1, JSON.stringify(f));
+    assert.equal(v.blocking[0]?.severity, "UNKNOWN");
+  }
+  assert.match(osvTable(verdictOf([{ id: "GHSA-aaaa-bbbb-cccc" }])), /UNKNOWN \(counts as HIGH\)/);
+});
+
+test("ci-v9.14 osv-check: a report that is not in the osv-scanner shape is refused (a format change never reads as clean)", () => {
+  assert.throws(() => parseOsvReport(null), /must be an object/);
+  assert.throws(() => parseOsvReport({}), /"results" is missing/);
+  assert.throws(() => parseOsvReport({ results: [{ source: { path: "x" } }] }), /packages is missing/);
+  assert.throws(() => parseOsvReport({ results: [{ packages: [{ package: { name: "a" }, vulnerabilities: [] }] }] }), /name and version/);
+  assert.throws(() => parseOsvReport({ results: [{ packages: [{ package: { name: "a", version: "1.0.0" }, vulnerabilities: [{}] }] }] }), /has no id/);
+  assert.deepEqual(parseOsvReport({ results: [] }), [], "an empty result list is a clean scan");
+});
+
+test("ci-v9.14 osv-check: the table lists id, package@version, severity, fixed version; blocking rows first", () => {
+  const v = verdictOf([
+    { id: "GHSA-mmmm-mmmm-mmmm", score: "5.0", pkg: "b", version: "2.0.0" },
+    { id: "GHSA-cccc-cccc-cccc", score: "9.8", pkg: "minimist", version: "1.2.0", fixed: ["1.2.6"] },
+  ]);
+  const lines = osvTable(v).split("\n");
+  assert.match(lines[0] as string, /^ID +PACKAGE@VERSION +SEVERITY +FIXED IN +STATUS$/);
+  assert.match(lines[1] as string, /^GHSA-cccc-cccc-cccc +minimist@1\.2\.0 +CRITICAL 9\.8 +1\.2\.6 +FAIL$/);
+  assert.match(lines[2] as string, /^GHSA-mmmm-mmmm-mmmm +b@2\.0\.0 +MEDIUM 5\.0 +- +info$/);
+});
+
+test("ci-v9.14 osvIgnore: a valid entry covers a HIGH finding (by id or by alias, case-insensitive) and it is printed as ignored", () => {
+  const f = { id: "GHSA-aaaa-bbbb-cccc", score: "7.5", aliases: ["CVE-2026-1234"] };
+  for (const id of ["GHSA-aaaa-bbbb-cccc", "ghsa-AAAA-bbbb-cccc", "CVE-2026-1234"]) {
+    const v = verdictOf([f], [ign(id, plusDays(30))]);
+    assert.equal(v.blocking.length, 0, id);
+    assert.equal(v.ignored.length, 1);
+    assert.deepEqual(v.problems, []);
+    assert.deepEqual(v.stale, []);
+    assert.match(osvTable(v), /ignored until /);
+  }
+  assert.equal(verdictOf([f], [ign("GHSA-zzzz-zzzz-zzzz", plusDays(30))]).blocking.length, 1, "another id does not cover it");
+});
+
+test("ci-v9.14 osvIgnore: expired and more-than-90-days entries fail and do not cover the finding; the boundaries", () => {
+  const f = { id: "GHSA-aaaa-bbbb-cccc", score: "9.0" };
+  const expired = verdictOf([f], [ign("GHSA-aaaa-bbbb-cccc", plusDays(-1))]);
+  assert.equal(expired.problems.length, 1);
+  assert.match(expired.problems[0] as string, /expired on /);
+  assert.equal(expired.blocking.length, 1, "an expired entry no longer covers the finding");
+  assert.equal(osvIgnoreProblems([ign("GHSA-aaaa-bbbb-cccc", TODAY)], TODAY).length, 1, "expires is the first day it no longer applies");
+  assert.deepEqual(osvIgnoreProblems([ign("GHSA-aaaa-bbbb-cccc", plusDays(1))], TODAY), []);
+  assert.deepEqual(osvIgnoreProblems([ign("GHSA-aaaa-bbbb-cccc", plusDays(OSV_IGNORE_MAX_DAYS))], TODAY), [], "exactly 90 days is allowed");
+  const far = verdictOf([f], [ign("GHSA-aaaa-bbbb-cccc", plusDays(OSV_IGNORE_MAX_DAYS + 1))]);
+  assert.equal(far.problems.length, 1);
+  assert.match(far.problems[0] as string, /more than 90 days/);
+  assert.match(far.problems[0] as string, new RegExp(plusDays(OSV_IGNORE_MAX_DAYS)), "tells the latest allowed date");
+  assert.equal(far.blocking.length, 1);
+  // an expired entry for a finding that is gone still fails (the repo must clean it up or renew it)
+  assert.equal(verdictOf([], [ign("GHSA-aaaa-bbbb-cccc", plusDays(-5))]).problems.length, 1);
+});
+
+test("ci-v9.14 osvIgnore: an entry that matches nothing is stale (warning, not a failure); LOW/MEDIUM matches are not stale", () => {
+  const v = verdictOf([{ id: "GHSA-1111-1111-1111", score: "5.0" }], [ign("GHSA-zzzz-zzzz-zzzz", plusDays(30)), ign("GHSA-1111-1111-1111", plusDays(30))]);
+  assert.deepEqual(
+    v.stale.map((x) => x.id),
+    ["GHSA-zzzz-zzzz-zzzz"],
+  );
+  assert.deepEqual(v.problems, []);
+  assert.equal(v.blocking.length, 0);
+});
+
+test("ci-v9.14 osvIgnore: config parsing (shape only; unknown keys, short reasons, bad dates, duplicates refused) and the schema agrees", () => {
+  const base = { kind: "library", paths: ["."] };
+  assert.deepEqual(validateConfig(base, repo).osvIgnore, [], "absent = no ignores");
+  const ok = ign("GHSA-aaaa-bbbb-cccc", "2026-12-01");
+  assert.deepEqual(validateConfig({ ...base, osvIgnore: [ok] }, repo).osvIgnore, [ok]);
+  assert.throws(() => validateConfig({ ...base, osvIgnore: ok }, repo), /must be a list/);
+  assert.throws(() => parseOsvIgnore([{ ...ok, extra: 1 }]), /unknown field extra/);
+  assert.throws(() => parseOsvIgnore([{ id: ok.id, expires: ok.expires }]), /reason/);
+  assert.throws(() => parseOsvIgnore([{ ...ok, reason: "too short" }]), /at least 10/);
+  assert.throws(() => parseOsvIgnore([{ ...ok, reason: "          " }]), /at least 10/);
+  assert.throws(() => parseOsvIgnore([{ ...ok, id: "nonsense" }]), /vulnerability id/);
+  assert.throws(() => parseOsvIgnore([{ ...ok, expires: "2026-02-30" }]), /calendar date/);
+  assert.throws(() => parseOsvIgnore([{ ...ok, expires: "01.12.2026" }]), /calendar date/);
+  assert.throws(() => parseOsvIgnore([{ id: ok.id, reason: ok.reason }]), /calendar date/);
+  assert.throws(() => parseOsvIgnore([ok, { ...ok, id: "ghsa-aaaa-bbbb-cccc" }]), /twice/);
+  assert.throws(() => parseOsvIgnore("GHSA-aaaa-bbbb-cccc"), /must be a list/);
+  // the schema accepts and refuses the same things (no JSON Schema library here: check its constraints directly)
+  const schema = JSON.parse(readFileSync(new URL("./tealbrick-ci.schema.json", import.meta.url), "utf8")) as {
+    properties: Record<
+      string,
+      { items: { additionalProperties: boolean; required: string[]; properties: Record<string, { pattern?: string; minLength?: number }> } }
+    >;
+  };
+  const item = schema.properties.osvIgnore?.items;
+  assert.ok(item, "schema has osvIgnore");
+  assert.equal(item.additionalProperties, false, "unknown keys refused");
+  assert.deepEqual([...item.required].sort(), ["expires", "id", "reason"]);
+  const idRe = new RegExp(item.properties.id?.pattern as string);
+  const dayRe = new RegExp(item.properties.expires?.pattern as string);
+  assert.equal(item.properties.reason?.minLength, 10);
+  for (const id of ["GHSA-aaaa-bbbb-cccc", "CVE-2026-12345", "OSV-2026-123"]) assert.ok(idRe.test(id), id);
+  for (const id of ["nonsense", "", "GHSA-"]) assert.ok(!idRe.test(id), id);
+  assert.ok(dayRe.test("2026-12-01"));
+  for (const d of ["01.12.2026", "2026-1-1", "2026-12-01T00:00"]) assert.ok(!dayRe.test(d), d);
+});
+
+test("ci-v9.14 osvLockfiles: the pnpm or npm lockfile of each node path (setup writes the list for the osv-scan step)", () => {
+  const files = new Set(["package.json", "pnpm-lock.yaml", "chat/package.json", "chat/package-lock.json", "empty/package.json", "nolock/package.json"]);
+  const has = (r: string): boolean => files.has(r);
+  assert.deepEqual(osvLockfiles({ paths: ["."] }, has), ["pnpm-lock.yaml"]);
+  assert.deepEqual(osvLockfiles({ paths: [".", "chat", "./chat", "gone", "nolock"] }, has), ["pnpm-lock.yaml", "chat/package-lock.json"]);
+  assert.deepEqual(osvLockfiles({ paths: ["gone"] }, has), [], "no package.json = nothing to scan");
+  assert.equal(OSV_LOCKFILES_FILE, ".tb-ci/osv-lockfiles");
+  assert.equal(OSV_REPORT_FILE, ".tb-ci/osv.json");
+  assert.equal(OSV_CONFIG_FILE, ".tb-ci/osv-scanner.toml");
+});
+
+test("ci-v9.14 osvLockfiles: a lockfile that clearly lists no package is not scanned (osv-scanner exit 128); anything unclear is", () => {
+  const files: Record<string, string> = {
+    "package.json": "{}",
+    "pnpm-lock.yaml": "lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n",
+    "a/package.json": "{}",
+    "a/pnpm-lock.yaml":
+      "lockfileVersion: '9.0'\n\nimporters:\n  .:\n    dependencies:\n      x:\n        specifier: 1.0.0\n        version: 1.0.0\n\npackages:\n\n  x@1.0.0:\n    resolution: {integrity: sha512-x}\n",
+    "b/package.json": "{}",
+    "b/package-lock.json": JSON.stringify({ lockfileVersion: 3, packages: { "": { name: "b" } } }),
+    "c/package.json": "{}",
+    "c/package-lock.json": JSON.stringify({ lockfileVersion: 3, packages: { "": {}, "node_modules/x": { version: "1.0.0" } } }),
+    "d/package.json": "{}",
+    "d/package-lock.json": "{ not json",
+  };
+  const has = (r: string): boolean => r in files;
+  const read = (r: string): string => files[r] as string;
+  assert.deepEqual(osvLockfiles({ paths: [".", "a", "b", "c", "d"] }, has, read), ["a/pnpm-lock.yaml", "c/package-lock.json", "d/package-lock.json"]);
+  assert.deepEqual(osvLockfiles({ paths: ["."] }, has), ["pnpm-lock.yaml"], "without read: listed as before");
+  assert.equal(osvLockfileEmpty("pnpm-lock.yaml", "lockfileVersion: '9.0'\npackages: {}\n"), true);
+  assert.equal(osvLockfileEmpty("pnpm-lock.yaml", "lockfileVersion: '9.0'\npackages:\n  x@1.0.0: {}\n"), false);
+  assert.equal(osvLockfileEmpty("package-lock.json", JSON.stringify({ lockfileVersion: 1, dependencies: {} })), false, "v1 npm lockfile: not judged, scanned");
+  assert.equal(osvLockfileEmpty("package-lock.json", JSON.stringify({ lockfileVersion: 2, packages: { "": {} }, dependencies: { x: {} } })), false);
+  assert.equal(osvLockfileEmpty("yarn.lock", ""), false);
+  // re-review S2: only positive evidence counts as empty; every other layout of a lockfile WITH packages is scanned
+  const pkg = "  x@1.0.0:\n    resolution: {integrity: sha512-x}\n";
+  for (const text of [
+    `  lockfileVersion: '9.0'\n  packages:\n  ${pkg}`, // whole document indented
+    `lockfileVersion: '9.0'\n"packages":\n${pkg}`, // quoted key
+    `lockfileVersion: '9.0'\npackages :\n${pkg}`, // space before the colon
+    "{lockfileVersion: '9.0', packages: {x@1.0.0: {resolution: {integrity: sha512-x}}}}\n", // flow style
+    `lockfileVersion: '9.0'\r\npackages:\r\n${pkg.replace(/\n/g, "\r\n")}`, // CRLF
+    `lockfileVersion: '9.0'\npackages: # comment\n${pkg}`,
+    `lockfileVersion: '9.0'\npackages: {}\n---\npackages:\n${pkg}`, // a second document
+  ])
+    assert.equal(osvLockfileEmpty("pnpm-lock.yaml", text), false, JSON.stringify(text));
+  assert.equal(osvLockfileEmpty("pnpm-lock.yaml", "lockfileVersion: '9.0'\r\npackages: {} # none\r\n"), true, "CRLF + comment, positive evidence");
+});
+
+test("ci-v9.14 template: osv-scan after setup beside install, image pinned by digest, no secret; osv-check judges the report; pre-release waits", () => {
+  const tpl = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
+  const g = templateGraph(tpl);
+  assert.deepEqual(g.get("osv-scan")?.deps, ["setup"], "needs the runner's lockfile list from setup");
+  assert.deepEqual(g.get("install")?.deps, ["setup"], "runs beside install");
+  assert.deepEqual(g.get("osv-check")?.deps, ["osv-scan"]);
+  assert.deepEqual(g.get("pre-release")?.deps, ["gen", "osv-check"]);
+  for (const name of ["osv-scan", "osv-check"]) {
+    const block = tpl.slice(tpl.indexOf(`- name: ${name}\n`)).split("\n\n")[0] as string;
+    assert.doesNotMatch(block, /from_secret/, `${name}: holds no secret`);
+    assert.doesNotMatch(block, /TOKEN|PASSWORD|SECRET/i, `${name}: no credential variable`);
+    assert.doesNotMatch(block, /detach:/);
+  }
+  const scan = tpl.slice(tpl.indexOf("- name: osv-scan\n")).split("\n\n")[0] as string;
+  const image = /image: (\S+)/.exec(scan)?.[1] ?? "";
+  assert.match(image, OSV_DIGEST, "osv-scanner v2.6.0 (not v2.7.0, too new) pinned by digest");
+  assert.doesNotMatch(scan, /environment:/, "the scan step gets no environment at all");
+  const script = stepScript(tpl, "osv-scan");
+  assert.match(script, /\/osv-scanner scan source /);
+  assert.ok(script.includes("--format json --output-file .tb-ci/osv.json"));
+  assert.ok(script.includes(OSV_LOCKFILES_FILE), "scans the lockfiles setup listed");
+  assert.ok(script.includes('-L "./$f"'));
+  // review S2: osv-scanner reads osv-scanner.toml next to a lockfile by default; a repo file would bypass osvIgnore's policy
+  assert.ok(script.includes(`--config ${OSV_CONFIG_FILE}`), "the scan passes the template-owned config");
+  assert.ok(
+    script.indexOf(`> ${OSV_CONFIG_FILE}`) >= 0 && script.indexOf(`> ${OSV_CONFIG_FILE}`) < script.indexOf("/osv-scanner scan"),
+    "the step writes that config itself, before the scan",
+  );
+  assert.doesNotMatch(script, /IgnoredVulns|ignoreUntil/, "the template config ignores nothing");
+  assert.match(
+    script,
+    /"\$rc" -ne 0 \] && \[ "\$rc" -ne 1 \]; then .*exit 1/,
+    "only exit 0 (clean) and 1 (vulnerabilities found) pass; osv.dev unreachable is exit 127",
+  );
+  assert.match(script, /osv\.dev unreachable/);
+  assert.equal(stepScript(tpl, "osv-check"), "node .tb-ci/tb-ci.ts osv-check .tb-ci/osv.json");
+  // the id and the runner hash are the same in every generated file
+  for (const f of ["woodpecker/ci.yaml", "woodpecker/release.yaml", "github/opt2-release.yml"])
+    assert.match(readFileSync(new URL(`./${f}`, import.meta.url), "utf8"), /ci-v9\.14/, f);
+  assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
+  const readme = readFileSync(new URL("./README.md", import.meta.url), "utf8");
+  assert.match(readme, /^ci-v9\.14 \(C262\)/m, "template history entry");
+  assert.ok(readme.includes(image), "the README names the same pinned image");
+});
+
+/** Runs `tb-ci osv-check` in a throw-away repo with a lockfile, the config and a report. No network. */
+function runOsvCheck(report: unknown | null, config: Record<string, unknown>, lock = true): { code: number; out: string } {
+  const dir = mkdtempSync(join(tmpdir(), "tb-osv-"));
+  try {
+    writeFileSync(join(dir, "tealbrick-ci.json"), JSON.stringify(config));
+    writeFileSync(join(dir, "package.json"), "{}");
+    if (lock) writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n\npackages:\n\n  x@1.0.0:\n    resolution: {integrity: sha512-x}\n");
+    mkdirSync(join(dir, ".tb-ci"));
+    if (report !== null) writeFileSync(join(dir, OSV_REPORT_FILE), typeof report === "string" ? report : JSON.stringify(report));
+    const env: NodeJS.ProcessEnv = { ...process.env, CI_WORKSPACE: dir, CI_REPO_NAME: repo };
+    try {
+      const out = execFileSync(process.execPath, [new URL("./tb-ci.ts", import.meta.url).pathname, "osv-check", OSV_REPORT_FILE], {
+        env,
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+      return { code: 0, out };
+    } catch (e) {
+      const err = e as { status?: number; stdout?: string; stderr?: string };
+      return { code: err.status ?? 1, out: `${err.stdout ?? ""}${err.stderr ?? ""}` };
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("ci-v9.14 osv-check command: HIGH and CRITICAL fail, MEDIUM passes, unknown fails, a valid ignore passes", () => {
+  const cfg = { kind: "library" };
+  const today = new Date().toISOString().slice(0, 10);
+  const inDays = (n: number): string => new Date(Date.parse(`${today}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+  const clean = runOsvCheck({ results: [] }, cfg);
+  assert.equal(clean.code, 0, clean.out);
+  const high = runOsvCheck(osvReport([{ id: "GHSA-aaaa-bbbb-cccc", score: "7.2", pkg: "lodash", version: "4.17.15", fixed: ["4.17.21"] }]), cfg);
+  assert.equal(high.code, 1);
+  assert.match(high.out, /GHSA-aaaa-bbbb-cccc +lodash@4\.17\.15 +HIGH 7\.2 +4\.17\.21 +FAIL/);
+  assert.equal(runOsvCheck(osvReport([{ id: "GHSA-aaaa-bbbb-cccc", score: "9.8" }]), cfg).code, 1);
+  const mid = runOsvCheck(osvReport([{ id: "GHSA-aaaa-bbbb-cccc", score: "5.3" }]), cfg);
+  assert.equal(mid.code, 0, mid.out);
+  assert.match(mid.out, /MEDIUM 5\.3/);
+  assert.equal(runOsvCheck(osvReport([{ id: "GHSA-aaaa-bbbb-cccc" }]), cfg).code, 1, "unknown severity");
+  const high1 = osvReport([{ id: "GHSA-aaaa-bbbb-cccc", score: "8.0" }]);
+  const ignored = runOsvCheck(high1, { ...cfg, osvIgnore: [ign("GHSA-aaaa-bbbb-cccc", inDays(30))] });
+  assert.equal(ignored.code, 0, ignored.out);
+  assert.match(ignored.out, /ignored until /);
+  const expired = runOsvCheck(high1, { ...cfg, osvIgnore: [ign("GHSA-aaaa-bbbb-cccc", inDays(-1))] });
+  assert.equal(expired.code, 1);
+  assert.match(expired.out, /expired on /);
+  const far = runOsvCheck(high1, { ...cfg, osvIgnore: [ign("GHSA-aaaa-bbbb-cccc", inDays(91))] });
+  assert.equal(far.code, 1);
+  assert.match(far.out, /more than 90 days/);
+  const stale = runOsvCheck({ results: [] }, { ...cfg, osvIgnore: [ign("GHSA-zzzz-zzzz-zzzz", inDays(30))] });
+  assert.equal(stale.code, 0, stale.out);
+  assert.match(stale.out, /WARNING: osvIgnore GHSA-zzzz-zzzz-zzzz matches no vulnerability/);
+  const unknownKey = runOsvCheck({ results: [] }, { ...cfg, osvIgnore: [{ ...ign("GHSA-aaaa-bbbb-cccc", inDays(30)), note: "x" }] });
+  assert.equal(unknownKey.code, 1);
+  assert.match(unknownKey.out, /unknown field note/);
+});
+
+test("ci-v9.14 osv-check command: fails closed on a missing, empty or foreign report; a repo without a node lockfile has nothing to scan", () => {
+  const cfg = { kind: "library" };
+  const missing = runOsvCheck(null, cfg);
+  assert.equal(missing.code, 1);
+  assert.match(missing.out, /did not write its report/);
+  assert.equal(runOsvCheck("", cfg).code, 1, "empty file");
+  assert.equal(runOsvCheck("not json", cfg).code, 1);
+  assert.equal(runOsvCheck({ error: "boom" }, cfg).code, 1, "no results list");
+  const none = runOsvCheck(null, cfg, false);
+  assert.equal(none.code, 0, none.out);
+  assert.match(none.out, /nothing was scanned/);
 });

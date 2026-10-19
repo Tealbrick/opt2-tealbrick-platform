@@ -6,6 +6,8 @@
 //   run <script>                run a standard script per project path (typecheck|lint|test|conformance|build)
 //   gen                         BSA-03: committed gen/ not stale, `gen` script produces every tb-gen kind, tb-gen check passes
 //   pre-release                 ci-v9.6: run tealbrick-ci.json preReleaseChecks (repo scripts) on every pipeline; gh-build runs them again on the tag
+//   osv-check <report.json>     ci-v9.14 (C262): judge the osv-scanner JSON report of the osv-scan step; fails on HIGH/CRITICAL/unknown
+//                               severity not covered by a valid osvIgnore entry (reason + expiry, at most 90 days)
 //   audit-templates             (platform cron) every opt2 repo's template ref >= ci/MIN_TEMPLATE
 //   plan-images                 write .tb-ci/images.sh for the kaniko steps
 //   release-record              (tag v*) validate + print the release; no token, no key (C62); the platform signer indexes it
@@ -42,7 +44,7 @@ import {
 } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
 
@@ -188,6 +190,7 @@ export interface CiConfig {
   preReleaseChecks: string[]; // ci-v9.6: repo-relative .ts scripts the pipeline runs before a release can be tagged
   packScripts: Record<string, string>; // ci-v9.7: package dir -> repo-relative .ts that builds that package's release tarball
   releaseOn: ReleaseOn; // ci-v9.10 (C222): who publishes releases: GitHub Actions (public repos) or Woodpecker (private repos)
+  osvIgnore: OsvIgnore[]; // ci-v9.14 (C262): vulnerabilities accepted for a limited time (reason + expiry <= 90 days), see osv-check
 }
 /** ci-v9.10 (C222): "actions" = .github/workflows/opt2-release.yml (free only in public repos); "woodpecker" = .woodpecker/release.yaml. */
 export type ReleaseOn = "actions" | "woodpecker";
@@ -745,7 +748,19 @@ export function versionFromTag(tag: string): string {
 export function validateConfig(raw: unknown, repoName: string): CiConfig {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error("tealbrick-ci.json must be an object");
   const o = raw as Record<string, unknown>;
-  const allowed = new Set(["$schema", "kind", "paths", "conformance", "images", "postgres", "distBaseUrl", "preReleaseChecks", "packScripts", "releaseOn"]);
+  const allowed = new Set([
+    "$schema",
+    "kind",
+    "paths",
+    "conformance",
+    "images",
+    "postgres",
+    "distBaseUrl",
+    "preReleaseChecks",
+    "packScripts",
+    "releaseOn",
+    "osvIgnore",
+  ]);
   for (const k of Object.keys(o)) if (!allowed.has(k)) throw new Error(`unknown field ${k}`);
   if (!KINDS.includes(o.kind as Kind)) throw new Error(`kind must be one of ${KINDS.join(", ")}`);
   const kind = o.kind as Kind;
@@ -759,6 +774,7 @@ export function validateConfig(raw: unknown, repoName: string): CiConfig {
   const distBaseUrl = o.distBaseUrl === undefined ? null : normalizeDistBase(o.distBaseUrl, "distBaseUrl");
   const preReleaseChecks = parsePreReleaseChecks(o.preReleaseChecks);
   const packScripts = parsePackScripts(o.packScripts);
+  const osvIgnore = parseOsvIgnore(o.osvIgnore);
   const releaseOn = o.releaseOn === undefined ? "actions" : o.releaseOn;
   if (releaseOn !== "actions" && releaseOn !== "woodpecker") throw new Error('releaseOn must be "actions" or "woodpecker"');
   const imagesRaw = o.images === undefined ? [] : o.images;
@@ -807,7 +823,7 @@ export function validateConfig(raw: unknown, repoName: string): CiConfig {
       throw new Error(`service ${im.product}/${im.service} declared twice`);
   }
   // ci-v9.11 (C232): images are allowed with releaseOn "woodpecker" (kaniko --no-push + crane push, secret tb_ghcr_token)
-  return { kind, paths, conformance, images, postgres, distBaseUrl, preReleaseChecks, packScripts, releaseOn };
+  return { kind, paths, conformance, images, postgres, distBaseUrl, preReleaseChecks, packScripts, releaseOn, osvIgnore };
 }
 
 function safeRel(p: string): boolean {
@@ -1992,6 +2008,18 @@ async function cmdSetup(): Promise<void> {
   if (cfg.postgres) writeFileSync(join(root, PG_MARKER), "requested by tealbrick-ci.json\n");
   else rmSync(join(root, PG_MARKER), { force: true });
   rmSync(join(root, PG_DONE_MARKER), { force: true }); // ci-v9.2: never inherit a stale "unit finished" marker
+  // ci-v9.14 (C262): the osv-scan step (osv-scanner image, no node) scans exactly the lockfiles listed here; osv-check judges the report
+  writeFileSync(
+    join(root, OSV_LOCKFILES_FILE),
+    osvLockfiles(
+      cfg,
+      (rel) => existsSync(join(root, rel)),
+      (rel) => readFileSync(join(root, rel), "utf8"),
+    )
+      .map((l) => `${l}\n`)
+      .join(""),
+  );
+  rmSync(join(root, OSV_REPORT_FILE), { force: true });
   const errors: string[] = [];
   const urls: string[] = [];
   for (const p of cfg.paths) {
@@ -2198,6 +2226,329 @@ function runPreReleaseChecks(cfg: CiConfig, root: string): void {
 function cmdPreRelease(): void {
   const root = repoRoot();
   runPreReleaseChecks(loadConfig(root), root);
+}
+
+// ---------- ci-v9.14 (C262): OSV vulnerability scan ----------
+// Two template steps, both without a secret: `osv-scan` (osv-scanner image, pinned by digest) scans the lockfiles that `setup` listed
+// in OSV_LOCKFILES_FILE and writes OSV_REPORT_FILE; `osv-check` (node image, this runner) judges the report. osv-scanner asks
+// osv.dev (no credentials). Fail closed: an unreachable osv.dev, a missing or unreadable report, a vulnerability with unknown
+// severity and an out-of-policy ignore entry all fail the pipeline.
+
+/** Written by `setup`: one repo-relative lockfile per line (empty file = nothing to scan). Read by the osv-scan step's shell. */
+export const OSV_LOCKFILES_FILE = ".tb-ci/osv-lockfiles";
+/** Written by the osv-scan step itself (never by the repo) and passed as `--config`: osv-scanner then reads NO repo-owned
+ *  osv-scanner.toml (its default looks next to each lockfile and in parent folders), so an exception exists only as a policy-checked
+ *  tealbrick-ci.json osvIgnore entry. */
+export const OSV_CONFIG_FILE = ".tb-ci/osv-scanner.toml";
+/** Written by the osv-scan step (osv-scanner `--format json`), read by `osv-check`. */
+export const OSV_REPORT_FILE = ".tb-ci/osv.json";
+/** CVSS base score thresholds (FIRST): HIGH 7.0-8.9, CRITICAL 9.0-10.0. A finding at or above OSV_HIGH fails the check. */
+export const OSV_HIGH = 7.0;
+export const OSV_CRITICAL = 9.0;
+/** An osvIgnore entry may run at most this many days from the day the check runs (it must be renewed, with a new reason review). */
+export const OSV_IGNORE_MAX_DAYS = 90;
+
+/** `osvIgnore` in tealbrick-ci.json: a vulnerability a repo accepts for a limited time. `expires` is the first day the entry no longer applies. */
+export interface OsvIgnore {
+  id: string; // GHSA-, CVE- or OSV id; matches the finding's id or any of its aliases (case-insensitive)
+  reason: string; // why the repo accepts it (>= 10 characters)
+  expires: string; // YYYY-MM-DD (UTC): after the run date, and at most OSV_IGNORE_MAX_DAYS days after it
+}
+
+/** Shape check only (the date window depends on the run date and is judged by `osv-check`, see osvIgnoreProblems). */
+export function parseOsvIgnore(raw: unknown): OsvIgnore[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) throw new Error('osvIgnore must be a list of { "id", "reason", "expires" }');
+  if (raw.length > 50) throw new Error("osvIgnore: at most 50 entries");
+  const seen = new Set<string>();
+  return raw.map((e, i): OsvIgnore => {
+    if (typeof e !== "object" || e === null || Array.isArray(e)) throw new Error(`osvIgnore[${i}] must be an object`);
+    const r = e as Record<string, unknown>;
+    for (const k of Object.keys(r)) if (!["id", "reason", "expires"].includes(k)) throw new Error(`osvIgnore[${i}]: unknown field ${k}`);
+    const { id, reason, expires } = r;
+    if (typeof id !== "string" || !/^[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9._:-]{1,80}$/.test(id))
+      throw new Error(`osvIgnore[${i}].id must be a vulnerability id such as GHSA-xxxx-xxxx-xxxx or CVE-2026-12345, got ${JSON.stringify(id)}`);
+    if (typeof reason !== "string" || reason.trim().length < 10) throw new Error(`osvIgnore[${i}].reason must say why in at least 10 characters`);
+    if (typeof expires !== "string" || osvDay(expires) === null)
+      throw new Error(`osvIgnore[${i}].expires must be a calendar date YYYY-MM-DD, got ${JSON.stringify(expires)}`);
+    if (seen.has(id.toUpperCase())) throw new Error(`osvIgnore lists ${id} twice`);
+    seen.add(id.toUpperCase());
+    return { id, reason: reason.trim(), expires };
+  });
+}
+
+/** Whole days since 1970-01-01 (UTC) of a YYYY-MM-DD calendar date; null when it is not a real date. */
+function osvDay(s: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const t = Date.parse(`${s}T00:00:00Z`);
+  if (!Number.isFinite(t) || new Date(t).toISOString().slice(0, 10) !== s) return null;
+  return t / 86_400_000;
+}
+
+/** Entries that are out of policy on the run date `today` (YYYY-MM-DD, UTC): expired, or expiring more than OSV_IGNORE_MAX_DAYS ahead. */
+export function osvIgnoreProblems(ignores: OsvIgnore[], today: string): string[] {
+  const t = osvDay(today);
+  if (t === null) throw new Error(`osvIgnoreProblems: bad run date ${today}`);
+  const out: string[] = [];
+  for (const ig of ignores) {
+    const e = osvDay(ig.expires) as number;
+    if (e <= t)
+      out.push(`osvIgnore ${ig.id}: expired on ${ig.expires} (today ${today}); fix the dependency, or renew the entry with a new date and a current reason`);
+    else if (e - t > OSV_IGNORE_MAX_DAYS)
+      out.push(
+        `osvIgnore ${ig.id}: expires ${ig.expires}, more than ${OSV_IGNORE_MAX_DAYS} days after today (${today}); the latest allowed date is ${osvDayString(t + OSV_IGNORE_MAX_DAYS)}`,
+      );
+  }
+  return out;
+}
+function osvDayString(day: number): string {
+  return new Date(day * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** The lockfiles osv-scan must scan: the pnpm or npm lockfile of every project path that has a package.json. Pure over `exists`
+ *  and `read`. A lockfile that CLEARLY lists no package (osvLockfileEmpty) is left out: it has nothing to scan and osv-scanner
+ *  exits 128 ("no packages found") on it, which the scan step treats as a failure. */
+export function osvLockfiles(cfg: { paths: string[] }, exists: (rel: string) => boolean, read?: (rel: string) => string): string[] {
+  const out: string[] = [];
+  for (const p of cfg.paths) {
+    const dir = posix.normalize(p);
+    const at = (f: string): string => (dir === "." ? f : `${dir}/${f}`);
+    if (!exists(at("package.json"))) continue;
+    const lock = ["pnpm-lock.yaml", "package-lock.json"].find((f) => exists(at(f)));
+    if (!lock || out.includes(at(lock))) continue;
+    if (read && osvLockfileEmpty(lock, read(at(lock)))) continue;
+    out.push(at(lock));
+  }
+  return out;
+}
+
+/** True only on POSITIVE evidence that the lockfile lists no package (fail closed: anything unclear is scanned). pnpm: the word
+ *  `packages` does not occur at all, or its ONLY occurrence is a top-level line `packages: {}` (any other layout — indented,
+ *  quoted, flow style — is scanned). npm (lockfileVersion >= 2): no `packages` entry other than the root "" and no
+ *  `dependencies`. An unreadable or unparsable lockfile is NOT empty (osv-scanner then fails on it). */
+export function osvLockfileEmpty(name: string, text: string): boolean {
+  if (name === "pnpm-lock.yaml") {
+    const n = text.match(/packages/g)?.length ?? 0;
+    if (n === 0) return true;
+    return n === 1 && /^packages:[ \t]*\{\}[ \t]*(#[^\r\n]*)?\r?$/m.test(text);
+  }
+  if (name === "package-lock.json") {
+    try {
+      const j = JSON.parse(text) as { lockfileVersion?: unknown; packages?: unknown; dependencies?: unknown };
+      if (typeof j.lockfileVersion !== "number" || j.lockfileVersion < 2) return false;
+      if (j.packages === null || typeof j.packages !== "object" || Array.isArray(j.packages)) return false;
+      const deps = j.dependencies;
+      if (deps !== undefined && (deps === null || typeof deps !== "object" || Object.keys(deps).length > 0)) return false;
+      return Object.keys(j.packages).every((k) => k === "");
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+export type OsvSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "UNKNOWN";
+export interface OsvFinding {
+  id: string;
+  ids: string[]; // the id, its aliases and the ids of its osv-scanner group (what an osvIgnore entry may name), upper-case
+  name: string;
+  version: string;
+  ecosystem: string;
+  source: string; // lockfile path as osv-scanner saw it
+  score: number | null; // CVSS base score, null when neither the report nor the advisory label gives one
+  severity: OsvSeverity; // UNKNOWN counts as HIGH (fail closed)
+  fixed: string[]; // fixed versions above the installed one, ascending
+}
+
+/** Score floor of an advisory's own severity label (GitHub: CRITICAL, HIGH, MODERATE, LOW; others: MEDIUM). */
+function osvLabelScore(label: unknown): number | null {
+  switch (typeof label === "string" ? label.trim().toUpperCase() : "") {
+    case "CRITICAL":
+      return OSV_CRITICAL;
+    case "HIGH":
+      return OSV_HIGH;
+    case "MODERATE":
+    case "MEDIUM":
+      return 4.0;
+    case "LOW":
+      return 0.1;
+    default:
+      return null;
+  }
+}
+export function osvSeverityOf(score: number | null): OsvSeverity {
+  if (score === null) return "UNKNOWN";
+  if (score >= OSV_CRITICAL) return "CRITICAL";
+  if (score >= OSV_HIGH) return "HIGH";
+  if (score >= 4.0) return "MEDIUM";
+  return "LOW";
+}
+/** Does this finding fail the check (before ignores)? HIGH, CRITICAL and UNKNOWN. */
+export function osvBlocks(sev: OsvSeverity): boolean {
+  return sev === "CRITICAL" || sev === "HIGH" || sev === "UNKNOWN";
+}
+
+function osvStrings(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+function osvObj(v: unknown, what: string): Record<string, unknown> {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) throw new Error(`osv report: ${what} must be an object`);
+  return v as Record<string, unknown>;
+}
+
+/** Reads an osv-scanner v2 `--format json` report: results[].packages[].vulnerabilities[] plus groups[] (ids, aliases, max_severity).
+ *  Severity per vulnerability = the larger of the group's `max_severity` (CVSS base score, highest over the aliases) and the floor
+ *  of the advisory's `database_specific.severity` label; neither present (or 0.0 and no label) = UNKNOWN. Throws on a report that is
+ *  not in this shape (fail closed: a format change must not read as "no vulnerabilities"). */
+export function parseOsvReport(raw: unknown): OsvFinding[] {
+  const root = osvObj(raw, "the report");
+  if (!Array.isArray(root.results)) throw new Error('osv report: "results" is missing (not an osv-scanner JSON report)');
+  const out = new Map<string, OsvFinding>();
+  for (const res of root.results) {
+    const r = osvObj(res, "results[]");
+    const source = typeof (r.source as { path?: unknown } | undefined)?.path === "string" ? (r.source as { path: string }).path : "?";
+    if (!Array.isArray(r.packages)) throw new Error("osv report: results[].packages is missing");
+    for (const pk of r.packages) {
+      const p = osvObj(pk, "packages[]");
+      const pkg = osvObj(p.package, "packages[].package");
+      if (typeof pkg.name !== "string" || typeof pkg.version !== "string") throw new Error("osv report: packages[].package needs name and version");
+      const ecosystem = typeof pkg.ecosystem === "string" ? pkg.ecosystem : "";
+      const groups = (Array.isArray(p.groups) ? p.groups : []).map((g) => osvObj(g, "groups[]"));
+      for (const vv of Array.isArray(p.vulnerabilities) ? p.vulnerabilities : []) {
+        const v = osvObj(vv, "vulnerabilities[]");
+        if (typeof v.id !== "string" || v.id === "") throw new Error(`osv report: a vulnerability of ${pkg.name}@${pkg.version} has no id`);
+        const group = groups.find((g) => osvStrings(g.ids).includes(v.id as string) || osvStrings(g.aliases).includes(v.id as string));
+        const groupScore = group && typeof group.max_severity === "string" ? Number.parseFloat(group.max_severity) : Number.NaN;
+        const parts: number[] = [];
+        if (Number.isFinite(groupScore) && groupScore > 0) parts.push(groupScore);
+        const label = osvLabelScore((v.database_specific as { severity?: unknown } | undefined)?.severity);
+        if (label !== null) parts.push(label);
+        const score = parts.length ? Math.max(...parts) : null;
+        const ids = [...new Set([v.id, ...osvStrings(v.aliases), ...osvStrings(group?.ids), ...osvStrings(group?.aliases)].map((x) => x.toUpperCase()))];
+        const key = `${v.id}|${pkg.name}|${pkg.version}|${ecosystem}`;
+        if (out.has(key)) continue; // the same package in two lockfiles is one finding
+        out.set(key, {
+          id: v.id,
+          ids,
+          name: pkg.name,
+          version: pkg.version,
+          ecosystem,
+          source,
+          score,
+          severity: osvSeverityOf(score),
+          fixed: osvFixedVersions(v.affected, pkg.name, ecosystem, pkg.version),
+        });
+      }
+    }
+  }
+  return [...out.values()];
+}
+
+/** Fixed versions (above the installed one) that the advisory names for this package, ascending. */
+function osvFixedVersions(affected: unknown, name: string, ecosystem: string, installed: string): string[] {
+  const fixed = new Set<string>();
+  for (const a of Array.isArray(affected) ? affected : []) {
+    const pk = (a as { package?: { name?: unknown; ecosystem?: unknown } }).package;
+    if (!pk || pk.name !== name || (ecosystem !== "" && pk.ecosystem !== ecosystem)) continue;
+    for (const rg of ((a as { ranges?: unknown }).ranges as unknown[] | undefined) ?? []) {
+      for (const ev of ((rg as { events?: unknown }).events as unknown[] | undefined) ?? []) {
+        const f = (ev as { fixed?: unknown }).fixed;
+        if (typeof f === "string" && (!/^\d+\.\d+\.\d+/.test(f) || osvCmp(f, installed) > 0)) fixed.add(f);
+      }
+    }
+  }
+  return [...fixed].sort(osvCmp);
+}
+function osvCmp(a: string, b: string): number {
+  const [x, y] = [semverCore(a), semverCore(b)];
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return (x[i] as number) - (y[i] as number);
+  return 0;
+}
+
+export interface OsvVerdict {
+  blocking: OsvFinding[]; // HIGH / CRITICAL / UNKNOWN with no valid ignore
+  ignored: { finding: OsvFinding; ignore: OsvIgnore }[];
+  info: OsvFinding[]; // LOW / MEDIUM, printed only
+  stale: OsvIgnore[]; // entries that match no finding
+  problems: string[]; // ignore entries out of policy (expired, > 90 days): these fail the check and do not apply
+}
+
+/** The decision of osv-check, pure. `today` is the run date (YYYY-MM-DD, UTC). */
+export function osvVerdict(findings: OsvFinding[], ignores: OsvIgnore[], today: string): OsvVerdict {
+  const problems = osvIgnoreProblems(ignores, today);
+  const badIds = new Set(ignores.filter((ig) => osvIgnoreProblems([ig], today).length > 0).map((ig) => ig.id));
+  const valid = ignores.filter((ig) => !badIds.has(ig.id));
+  const blocking: OsvFinding[] = [];
+  const ignored: OsvVerdict["ignored"] = [];
+  const info: OsvFinding[] = [];
+  const used = new Set<string>();
+  for (const f of findings) {
+    const hit = valid.find((ig) => f.ids.includes(ig.id.toUpperCase()));
+    if (osvBlocks(f.severity)) {
+      if (hit) {
+        ignored.push({ finding: f, ignore: hit });
+        used.add(hit.id);
+      } else blocking.push(f);
+    } else info.push(f);
+  }
+  // an entry is also in use when it names a LOW/MEDIUM finding, or one that an expired entry would have covered
+  for (const ig of ignores) if (findings.some((f) => f.ids.includes(ig.id.toUpperCase()))) used.add(ig.id);
+  return { blocking, ignored, info, stale: ignores.filter((ig) => !used.has(ig.id)), problems };
+}
+
+const OSV_RANK: Record<OsvSeverity, number> = { CRITICAL: 4, UNKNOWN: 3, HIGH: 3, MEDIUM: 2, LOW: 1 };
+/** The table osv-check prints: id, package@version, severity (with score), fixed version, status. */
+export function osvTable(v: OsvVerdict): string {
+  const rows: string[][] = [["ID", "PACKAGE@VERSION", "SEVERITY", "FIXED IN", "STATUS"]];
+  const sorted = (xs: OsvFinding[]): OsvFinding[] =>
+    [...xs].sort((a, b) => OSV_RANK[b.severity] - OSV_RANK[a.severity] || (b.score ?? 10) - (a.score ?? 10) || a.id.localeCompare(b.id));
+  const row = (f: OsvFinding, status: string): string[] => [
+    f.id,
+    `${f.name}@${f.version}`,
+    f.score === null ? "UNKNOWN (counts as HIGH)" : `${f.severity} ${f.score.toFixed(1)}`,
+    f.fixed.length ? f.fixed.join(", ") : "-",
+    status,
+  ];
+  for (const f of sorted(v.blocking)) rows.push(row(f, "FAIL"));
+  for (const { finding, ignore } of v.ignored) rows.push(row(finding, `ignored until ${ignore.expires}: ${ignore.reason}`));
+  for (const f of sorted(v.info)) rows.push(row(f, "info"));
+  const w = rows[0]?.map((_, i) => Math.max(...rows.map((r) => (r[i] as string).length))) ?? [];
+  return rows.map((r) => r.map((c, i) => (i === r.length - 1 ? c : c.padEnd(w[i] as number))).join("  ")).join("\n");
+}
+
+function cmdOsvCheck(args: string[]): void {
+  const file = args[0];
+  if (!file) fail("usage: osv-check <osv-scanner report.json>");
+  const root = repoRoot();
+  const cfg = loadConfig(root);
+  const today = new Date().toISOString().slice(0, 10);
+  const expected = osvLockfiles(
+    cfg,
+    (rel) => existsSync(join(root, rel)),
+    (rel) => readFileSync(join(root, rel), "utf8"),
+  );
+  let findings: OsvFinding[] = [];
+  if (expected.length === 0) log("osv-check: no node lockfile in this repo (no package.json under tealbrick-ci.json paths); nothing was scanned");
+  else {
+    if (!existsSync(resolve(root, file)))
+      fail(`osv-check: ${file} does not exist: the osv-scan step did not write its report (osv.dev unreachable?). Failing closed.`);
+    try {
+      findings = parseOsvReport(JSON.parse(readFileSync(resolve(root, file), "utf8")));
+    } catch (e) {
+      fail(`osv-check: cannot read ${file}: ${(e as Error).message}. Failing closed.`);
+    }
+    log(`osv-check: report ${file} for ${expected.join(", ")}: ${findings.length} vulnerability finding(s)`);
+  }
+  const v = osvVerdict(findings, cfg.osvIgnore, today);
+  if (findings.length) console.log(osvTable(v));
+  for (const ig of v.stale) log(`WARNING: osvIgnore ${ig.id} matches no vulnerability in this scan (stale); remove it`);
+  const problems = [...v.problems];
+  if (v.blocking.length)
+    problems.push(
+      `${v.blocking.length} HIGH/CRITICAL/unknown-severity vulnerabilit${v.blocking.length === 1 ? "y" : "ies"} (CVSS >= ${OSV_HIGH.toFixed(1)}; unknown counts as HIGH): update the dependency to the FIXED IN version, or accept it for a limited time with an osvIgnore entry in tealbrick-ci.json`,
+    );
+  if (problems.length) fail(`\n  - ${problems.join("\n  - ")}`);
+  log(`osv-check OK (${v.info.length} LOW/MEDIUM printed only, ${v.ignored.length} ignored)`);
 }
 
 /** gh-build: frozen, script-free install of every node path (checks may import the repo's dependencies). */
@@ -3955,6 +4306,8 @@ async function main(argv: string[]): Promise<void> {
       return cmdGen();
     case "pre-release":
       return cmdPreRelease();
+    case "osv-check":
+      return cmdOsvCheck(rest);
     case "gh-build":
       return cmdGhBuild();
     case "gh-publish":
@@ -3989,7 +4342,7 @@ async function main(argv: string[]): Promise<void> {
       return cmdRegistryAddSource(rest);
     default:
       fail(
-        "usage: tb-ci setup|install|run <script>|gen|pre-release|audit-templates|gh-build|gh-publish|wp-build|wp-push|wp-publish|plan-images|release-record|package-pack|registry-add-desktop|registry-add-source|registry-sign|registry-sync|pin-tarballs|adopt|stamp",
+        "usage: tb-ci setup|install|run <script>|gen|pre-release|osv-check <report.json>|audit-templates|gh-build|gh-publish|wp-build|wp-push|wp-publish|plan-images|release-record|package-pack|registry-add-desktop|registry-add-source|registry-sign|registry-sync|pin-tarballs|adopt|stamp",
       );
   }
 }
