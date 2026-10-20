@@ -12,6 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { PRIVATE_REPOS } from "../ci/tb-ci.ts";
+import { pluginImage, REGISTRY_HOST } from "./site-deploy-plugin/image.ts";
 
 /** C206: the opt2 repos move to the Tealbrick org in batches; during the move some still live under the user account. Each
  *  repo's CURRENT owner is read from GitHub (first match wins), so one run works before, during and after the move. */
@@ -164,6 +165,8 @@ interface Keep {
   repo: string;
   name: string;
   events: string[];
+  /** image filter the secret must have (a plugin-only secret); default none */
+  images?: string[];
 }
 // C232 (template ci-v9.11): the bridge repo releases its image on Woodpecker. tb_ghcr_token (classic PAT, write:packages only, of the
 // machine user) is read ONLY by the release-image-push step; tb_release_token (publish step) is the same as in the cli repo.
@@ -174,9 +177,16 @@ const KEEP: Keep[] = [
   // C293a: the website self-service deploy. site_deploy_key (the WRITE deploy key of the website repo; moves site-dev/site-live over SSH) and
   // site_deploy_token (GitHub fine-grained token, this one repo, Contents read and write; release record only) are
   // read ONLY by .woodpecker/site-deploy.yaml of opt2-tealbrick-website. Martin stores them with ops/website-autodeploy-setup.ts.
-  { repo: "opt2-tealbrick-website", name: "site_deploy_token", events: ["push", "tag"] },
-  { repo: "opt2-tealbrick-website", name: "site_deploy_key", events: ["push", "tag"] },
+  { repo: "opt2-tealbrick-website", name: "site_deploy_token", events: ["push", "tag"], images: [pluginImage()] },
+  { repo: "opt2-tealbrick-website", name: "site_deploy_key", events: ["push", "tag"], images: [pluginImage()] },
 ];
+/** C293a: registry credentials made by hand (ops/website-autodeploy-setup.ts). The website repo's Woodpecker agents pull the deploy plugin
+ *  image from the Forgejo registry with it. This script never deletes, writes or reads a registry credential; it only reports it. */
+interface KeepRegistry {
+  repo: string;
+  address: string;
+}
+const KEEP_REGISTRIES: KeepRegistry[] = [{ repo: "opt2-tealbrick-website", address: REGISTRY_HOST }];
 
 // C72: no org-level secrets in the opt2 Woodpecker org. ONLY the Martin-Atrin org (opt2 only). NEVER the Tealbrick org: it is
 // shared with the v1 repos and their own org secrets (C206 incident 2026-10-16: an earlier version of this loop deleted the
@@ -215,9 +225,11 @@ for (const repo of TARGETS) {
       continue;
     }
     const events = [...(sec.events ?? [])].sort();
-    const ok = events.join(",") === [...k.events].sort().join(",") && (sec.images ?? []).length === 0;
+    const wantImages = [...(k.images ?? [])].sort();
+    const haveImages = [...(sec.images ?? [])].sort();
+    const ok = events.join(",") === [...k.events].sort().join(",") && haveImages.join(",") === wantImages.join(",");
     console.log(
-      `${repo} secret ${k.name}: kept (hand-made, C222) [${events.join(",")}]${ok ? "" : ` WARNING: want events [${k.events.join(",")}] and no image filter`}`,
+      `${repo} secret ${k.name}: kept (hand-made, C222) [${events.join(",")}]${ok ? "" : ` WARNING: want events [${k.events.join(",")}] and ${wantImages.length ? `the image filter [${wantImages.join(",")}]` : "no image filter"}`}`,
     );
   }
   for (const sec of listed) {
@@ -237,5 +249,17 @@ for (const repo of TARGETS) {
     const exists = (await wp("GET", `/repos/${id}/secrets/${w.name}`)).status === 200;
     const r = exists ? await wp("PATCH", `/repos/${id}/secrets/${w.name}`, body) : await wp("POST", `/repos/${id}/secrets`, body);
     console.log(`${repo} secret ${w.name} [${w.events.join(",")}]: ${r.status === 200 ? (exists ? "updated" : "created") : `FAILED (HTTP ${r.status})`}`);
+  } // C293a: registry credentials are never deleted. Report the hand-made ones (address and username only; the API never returns the password).
+  const keepRegs = KEEP_REGISTRIES.filter((k) => k.repo === repo);
+  if (keepRegs.length) {
+    const regs = (await wp("GET", `/repos/${id}/registries`)).json as { address?: string; username?: string }[] | null;
+    for (const k of keepRegs) {
+      const hit = (regs ?? []).find((r) => r.address === k.address);
+      console.log(
+        hit
+          ? `${repo} registry ${k.address}: kept (hand-made, C293a) [user ${hit.username ?? "?"}]`
+          : `${repo} registry ${k.address}: MISSING (C293a: Martin sets it with ops/website-autodeploy-setup.ts; this script never writes it)`,
+      );
+    }
   }
 }

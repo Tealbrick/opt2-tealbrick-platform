@@ -2827,7 +2827,9 @@ test("ci-v9.11 C232: woodpecker-activate keeps tb_ghcr_token (and the bridge's t
   assert.ok(keep.includes('{ repo: "opt2-tealbrick-cli", name: "tb_release_token", events: ["manual", "tag"] }'), "the cli entry is unchanged");
   assert.ok(keep.includes(WP_GHCR_SECRET));
   // the loop keeps listed names, warns on a wrong event filter or an image filter, and never reads or sends a value
-  assert.ok(src.includes("(sec.images ?? []).length === 0"), "no plugin/image filter");
+  // C293a: the image filter must equal the entry's `images` (default none); only the website's plugin secrets list one
+  assert.ok(src.includes('haveImages.join(",") === wantImages.join(",")'), "the image filter is compared with the entry (none by default)");
+  assert.ok(src.includes("const wantImages = [...(k.images ?? [])].sort();"), "an entry without images wants no image filter");
   assert.ok(src.includes("if (keep.some((k) => k.name === sec.name)) continue;"), "a kept secret is never deleted");
   assert.ok(!/sec\.value|\.value\b/.test(src.slice(src.indexOf("for (const k of keep)"), src.indexOf("for (const w of want)"))), "the value is never read");
   // every other secret is still deleted

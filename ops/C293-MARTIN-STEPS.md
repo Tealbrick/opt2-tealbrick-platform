@@ -1,14 +1,17 @@
 # C293 steps for Martin: website self-service deploy
 
-Language: ASD-STE100. Each step has one instruction. Do the steps in this order: a, c, d, e, b, then merge, then f.
+Language: ASD-STE100. Each step has one instruction. Do the steps in this order: a, c, c2, the image publish, d, e, b, the merge, the rollout test, then f.
+The image publish and the rollout test are done by an operator. They are in `ops/C293-OPERATOR-RUNBOOK.md`.
 Repo = `Tealbrick/opt2-tealbrick-website`. Platform repo = `Tealbrick/opt2-tealbrick-platform`.
 
 What this gives you: a merge to `main` deploys DEV. A tag `site-vX.Y.Z` on a `main` commit deploys LIVE.
 Railway builds from the branches `site-dev` (DEV) and `site-live` (LIVE). No Railway token is used in CI.
 Woodpecker moves the two branches over SSH with a write deploy key (`site_deploy_key`).
+Only a small plugin image (`forge.polygonface.com/polygonface/tb-site-deploy`) can read the key and the token.
+A workflow on a writer's branch cannot read them. This closes the residual risk only after the rollout test passed.
 The GitHub token (`site_deploy_token`) only writes the release record. It does not move branches.
 
-WARNING: Do not merge the website pull request before steps a, c, d and e are done. The deploy step fails without them.
+WARNING: Do not merge the website pull request before steps a, c, c2, the image publish, d and e are done. The deploy step fails without them.
 
 WARNING: Do not run `ops/woodpecker-activate.ts` before the platform pull request of this change is merged.
 The old version of that script deletes the secrets `site_deploy_key` and `site_deploy_token`.
@@ -62,9 +65,30 @@ Optional but recommended: a bot account for the token.
 17. Create a GitHub account only for this job. Give it the "Write" role on the website repo. Do not give it "Admin".
 18. Create the token in step 9 to 14 with that account. A leaked token then gives write access, not your admin powers.
 
-## d. Store the key and the token in Woodpecker
+## c2. Create the two Forgejo tokens
 
-WARNING: The script asks for both values with hidden input. Nothing shows on the screen when you paste.
+WARNING: Make two separate tokens. The write token never goes into Woodpecker. The read token never goes into a file.
+
+1. Open Forgejo (`https://forge.polygonface.com`). Sign in with your own login.
+2. Go to Settings, then Applications. Find "Manage Access Tokens".
+3. Set the token name to `site-deploy-publish`.
+4. Set the permission "package" to "Read and Write". Leave every other permission at "No access".
+5. Click "Generate Token". Copy the token.
+6. Run `mkdir -p ~/.config/opt2-tealbrick`.
+7. Run `umask 077 && pbpaste > ~/.config/opt2-tealbrick/forge-packages-token`. This writes the token from the clipboard.
+8. Run `chmod 600 ~/.config/opt2-tealbrick/forge-packages-token`.
+9. Run `ls -l ~/.config/opt2-tealbrick/forge-packages-token`. Make sure the mode shows `-rw-------`.
+10. Clear the clipboard.
+11. Click "Generate Token" again. Set the token name to `site-deploy-pull`.
+12. Set the permission "package" to "Read". Leave every other permission at "No access".
+13. Click "Generate Token". Copy the token. Do not save it in a file. Step d asks for it.
+14. Tell the operator: "the publish token file is ready". The operator publishes the image (runbook, part a).
+15. Wait for the operator to report the image digest. Do not start step d before that.
+
+## d. Store the key, the tokens and the registry login in Woodpecker
+
+WARNING: The script asks for the values with hidden input. Nothing shows on the screen when you paste.
+The script asks for your Forgejo login name in clear text. This is not a secret.
 
 1. Open a terminal in the platform repo (after its pull request is merged, or on the branch `feat/c293-website-autodeploy-setup`).
 2. Run `node ops/website-autodeploy-setup.ts --dry-run`. Read the plan.
@@ -72,10 +96,14 @@ WARNING: The script asks for both values with hidden input. Nothing shows on the
 4. Run `cat ~/tmp-site-deploy/site_deploy_key` in a second terminal tab. Copy the whole output.
 5. Paste it in the first tab. The script stops reading at the last line of the key.
 6. Paste the GitHub token. Press Enter.
-7. Wait for the last line. It must say `done`.
-8. Make sure the line "secret names" lists `site_deploy_key` and `site_deploy_token`.
-9. Delete the two files in `~/tmp-site-deploy` yourself. Delete the folder. Clear the clipboard.
-10. Close both terminal tabs.
+7. Type your Forgejo login name. Press Enter.
+8. Paste the Forgejo read token from step c2. Press Enter.
+9. Wait for the last line. It must say `done`.
+10. Make sure the line "secret names" lists `site_deploy_key` and `site_deploy_token`.
+11. Make sure the line "secrets" shows the image filter `forge.polygonface.com/polygonface/tb-site-deploy:1.0.0`.
+12. Make sure the line "registry addresses" lists `forge.polygonface.com`.
+13. Delete the two files in `~/tmp-site-deploy` yourself. Delete the folder. Clear the clipboard.
+14. Close both terminal tabs.
 
 If the script says "not in Woodpecker", run `node ops/woodpecker-activate.ts --repo website` and run step d again.
 If the script says the Woodpecker URL is not https, correct `WOODPECKER_URL` in `~/.config/opt2-tealbrick/hosts.env`.
@@ -115,15 +143,17 @@ WARNING: Create the branches `site-dev` and `site-live` (step a) before ruleset 
 7. Read the section "Residual risk". Decide if Teiger212 keeps the "admin" role or gets the "write" role.
    Admins can edit rulesets.
 
-## Merge the website pull request
+## Merge the website pull request, then the rollout test
 
 1. Open the website pull request "C293". Wait for the check `ci/woodpecker/pr/ci` to turn green.
 2. Merge it into `main`.
 3. Open Woodpecker. Make sure the workflow `site-deploy` ran after `ci` and the step `deploy-dev` is green.
+4. Ask the operator to do the rollout test (`ops/C293-OPERATOR-RUNBOOK.md`, part b and c). Wait for the result.
+5. If the test fails, stop. Tell the Coordinator. The residual risk stays open.
 
 ## f. Test the rollback on DEV
 
-WARNING: Do not tag `site-v1.0.0` (the first LIVE use) before this test passes.
+WARNING: Do not tag `site-v1.0.0` (the first LIVE use) before this test and the rollout test pass.
 
 An operator does these steps. Use the DEV address `https://website-production-66a1.up.railway.app`.
 

@@ -1,10 +1,13 @@
 // C293a: ops/website-autodeploy-setup.ts with a mocked Woodpecker (no network, no real token, no prompt).
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { pluginImage } from "./site-deploy-plugin/image.ts";
 import {
   checkKey,
   checkToken,
   EVENTS,
+  FORGE_TOKEN_RE,
+  FORGE_USER_RE,
   KEY_SECRET,
   parseArgs,
   planLines,
@@ -12,6 +15,7 @@ import {
   requireHttps,
   SECRET_NAMES,
   type SecretInfo,
+  type SetupValues,
   storeSecrets,
   TOKEN_SECRET,
 } from "./website-autodeploy-setup.ts";
@@ -29,7 +33,9 @@ function fakeKey(cipher = "none", type = "ssh-ed25519"): string {
   return ["-----BEGIN OPENSSH PRIVATE KEY-----", ...lines, "-----END OPENSSH PRIVATE KEY-----"].join("\n");
 }
 const KEY = fakeKey();
-const VALUES = { [TOKEN_SECRET]: GH, [KEY_SECRET]: KEY };
+const FORGE = ["forgetoken", "TESTONLY0123456789abcdef0123456789"].join("");
+const VALUES: SetupValues = { [TOKEN_SECRET]: GH, [KEY_SECRET]: KEY, forgeUser: "martin", forgeToken: FORGE };
+const IMAGE = pluginImage();
 const T = { timeout: 10_000 };
 
 interface Call {
@@ -42,13 +48,22 @@ interface Mock {
   fetch: typeof fetch;
   calls: Call[];
   secrets: SecretInfo[];
+  registries: { address: string; username: string }[];
 }
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
 /** A small Woodpecker: repo lookup, secret list/get/create/update. `storeEvents` lets a test simulate a server that changes the filter. */
-function mock(opts: { secrets?: SecretInfo[]; lookup?: Record<string, number>; storeEvents?: string[] } = {}): Mock {
-  const m: Mock = { calls: [], secrets: opts.secrets ?? [], fetch: undefined as unknown as typeof fetch };
+function mock(
+  opts: {
+    secrets?: SecretInfo[];
+    registries?: { address: string; username: string }[];
+    lookup?: Record<string, number>;
+    storeEvents?: string[];
+    storeImages?: string[];
+  } = {},
+): Mock {
+  const m: Mock = { calls: [], secrets: opts.secrets ?? [], registries: opts.registries ?? [], fetch: undefined as unknown as typeof fetch };
   const lookup = opts.lookup ?? { [REPO]: 42 };
   m.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const u = new URL(String(input));
@@ -65,15 +80,35 @@ function mock(opts: { secrets?: SecretInfo[]; lookup?: Record<string, number>; s
         200,
         m.secrets.map((s) => ({ ...s, value: undefined })),
       );
+    if (method === "GET" && u.pathname === "/api/repos/42/registries") return json(200, m.registries);
+    const reg = /^\/api\/repos\/42\/registries\/(.+)$/.exec(u.pathname);
+    if (reg && method === "GET") return m.registries.some((r) => r.address === decodeURIComponent(reg[1] as string)) ? json(200, {}) : json(404, {});
+    if (method === "POST" && u.pathname === "/api/repos/42/registries") {
+      m.registries.push({ address: String(body?.address), username: String(body?.username) });
+      return json(200, {});
+    }
+    if (reg && method === "PATCH") {
+      const i = m.registries.findIndex((r) => r.address === decodeURIComponent(reg[1] as string));
+      m.registries[i] = { address: String(body?.address), username: String(body?.username) };
+      return json(200, {});
+    }
     const one = /^\/api\/repos\/42\/secrets\/(.+)$/.exec(u.pathname);
     if (one && method === "GET") return m.secrets.some((s) => s.name === one[1]) ? json(200, { name: one[1] }) : json(404, { message: "not found" });
     if (method === "POST" && u.pathname === "/api/repos/42/secrets") {
-      m.secrets.push({ name: String(body?.name), events: opts.storeEvents ?? (body?.events as string[]), images: [] });
+      m.secrets.push({
+        name: String(body?.name),
+        events: opts.storeEvents ?? (body?.events as string[]),
+        images: opts.storeImages ?? (body?.images as string[]),
+      });
       return json(200, { name: body?.name });
     }
     if (method === "PATCH" && one) {
       const i = m.secrets.findIndex((s) => s.name === one[1]);
-      m.secrets[i] = { name: String(body?.name), events: opts.storeEvents ?? (body?.events as string[]), images: [] };
+      m.secrets[i] = {
+        name: String(body?.name),
+        events: opts.storeEvents ?? (body?.events as string[]),
+        images: opts.storeImages ?? (body?.images as string[]),
+      };
       return json(200, { name: body?.name });
     }
     return json(500, { message: `unmocked ${method} ${u.pathname}` });
@@ -116,44 +151,97 @@ test("parseArgs: only --dry-run", T, () => {
   assert.throws(() => parseArgs(["--force"]), /unknown option/);
 });
 
-test("planLines: names the repo, both secrets and exactly push + tag; no value", T, () => {
+test("planLines: names the repo, both secrets, the registry, exactly push + tag and the image filter; no value", T, () => {
   const text = planLines().join("\n");
+  assert.ok(text.includes(IMAGE) && text.includes("forge.polygonface.com") && text.includes("read:package"));
   assert.ok(text.includes(REPO) && text.includes("site_deploy_token") && text.includes("site_deploy_key"));
   assert.ok(text.includes("push, tag"));
   assert.ok(!text.includes("github_pat_") && !text.includes("BEGIN"));
 });
 
-test("storeSecrets: stores exactly two secrets, each with events exactly push + tag and no image filter", T, async () => {
+test("storeSecrets: stores exactly two secrets, each with events exactly push + tag and the image filter = the plugin image", T, async () => {
   const m = mock();
   const out = await storeSecrets(WP, VALUES, m.fetch);
-  const writes = m.calls.filter((c) => c.method === "POST" || c.method === "PATCH");
+  const writes = m.calls.filter((c) => (c.method === "POST" || c.method === "PATCH") && c.path.includes("/secrets"));
   assert.equal(writes.length, 2);
   assert.deepEqual(writes.map((w) => w.body?.name).sort(), ["site_deploy_key", "site_deploy_token"]);
   for (const w of writes) {
     assert.deepEqual(w.body?.events, ["push", "tag"]);
-    assert.deepEqual(w.body?.images, []);
+    assert.deepEqual(w.body?.images, ["forge.polygonface.com/polygonface/tb-site-deploy:1.0.0"]);
+    assert.deepEqual(w.body?.images, [IMAGE]);
   }
   assert.deepEqual([...EVENTS], ["push", "tag"]);
   assert.deepEqual([...SECRET_NAMES], ["site_deploy_token", "site_deploy_key"]);
   assert.equal(m.secrets.length, 2);
   assert.equal(out.at(-1), "done");
+  assert.ok(out.some((l) => l === `secrets: events push, tag, image filter ${IMAGE}`));
+});
+
+test(
+  "storeSecrets: sets the registry credential (host forge.polygonface.com, the typed Forgejo login) once; the password goes only into that body",
+  T,
+  async () => {
+    const m = mock();
+    const out = await storeSecrets(WP, VALUES, m.fetch);
+    const regWrites = m.calls.filter((c) => (c.method === "POST" || c.method === "PATCH") && c.path.includes("/registries"));
+    assert.equal(regWrites.length, 1);
+    assert.deepEqual(regWrites[0]?.body, { address: "forge.polygonface.com", username: "martin", password: FORGE });
+    assert.deepEqual(m.registries, [{ address: "forge.polygonface.com", username: "martin" }]);
+    assert.equal(m.calls.filter((c) => JSON.stringify(c.body ?? {}).includes(FORGE)).length, 1);
+    assert.ok(!out.join("\n").includes(FORGE));
+    assert.ok(out.some((l) => l === "registry addresses of Tealbrick/opt2-tealbrick-website: forge.polygonface.com"));
+    for (const c of m.calls) assert.ok(!c.path.includes(FORGE));
+  },
+);
+
+test("storeSecrets: an existing registry entry is updated (PATCH), other entries stay, nothing is deleted", T, async () => {
+  const m = mock({
+    registries: [
+      { address: "forge.polygonface.com", username: "old" },
+      { address: "ghcr.io", username: "keep" },
+    ],
+  });
+  await storeSecrets(WP, VALUES, m.fetch);
+  assert.equal(m.calls.filter((c) => c.method === "PATCH" && c.path.includes("/registries/")).length, 1);
+  assert.deepEqual(m.registries, [
+    { address: "forge.polygonface.com", username: "martin" },
+    { address: "ghcr.io", username: "keep" },
+  ]);
+  assert.ok(m.calls.every((c) => c.method !== "DELETE"));
+});
+
+test("storeSecrets: refuses when Woodpecker keeps another image filter (none, or another image)", T, async () => {
+  for (const storeImages of [[], ["docker.io/library/node:24"], [IMAGE, "docker.io/library/node:24"]]) {
+    const m = mock({ storeImages });
+    await assert.rejects(
+      () => storeSecrets(WP, VALUES, m.fetch),
+      (e: Error) => /image filter \[.*\] but must be exactly/.test(e.message) && !e.message.includes(GH),
+    );
+  }
+});
+
+test("Forgejo login and token shapes", T, () => {
+  assert.ok(FORGE_TOKEN_RE.test(FORGE));
+  for (const bad of ["", "short", `${FORGE} x`, "tok;en0123456789012345678"]) assert.ok(!FORGE_TOKEN_RE.test(bad));
+  assert.ok(FORGE_USER_RE.test("martin") && !FORGE_USER_RE.test("a b") && !FORGE_USER_RE.test("-x"));
 });
 
 test("storeSecrets: existing secrets are updated (PATCH), not duplicated, and the events are reset", T, async () => {
   const m = mock({ secrets: [{ name: "site_deploy_token", events: ["push", "tag", "pull_request"], images: [] }] });
   const out = await storeSecrets(WP, VALUES, m.fetch);
-  assert.equal(m.calls.filter((c) => c.method === "PATCH").length, 1);
-  assert.equal(m.calls.filter((c) => c.method === "POST").length, 1);
+  const secretWrites = m.calls.filter((c) => (c.method === "PATCH" || c.method === "POST") && c.path.includes("/secrets"));
+  assert.equal(secretWrites.filter((c) => c.method === "PATCH").length, 1);
+  assert.equal(secretWrites.filter((c) => c.method === "POST").length, 1);
   assert.deepEqual(m.secrets.find((s) => s.name === "site_deploy_token")?.events, ["push", "tag"]);
-  assert.match(out[0] ?? "", /^updated site_deploy_token/);
+  assert.ok(out.some((l) => l.startsWith("updated site_deploy_token")));
 });
 
-test("storeSecrets: no token or key text in any output line or URL; each value is in exactly one request body", T, async () => {
+test("storeSecrets: no token, key or Forgejo token text in any output line or URL; each value is in exactly one request body", T, async () => {
   const m = mock({ secrets: [{ name: "tb_release_token", events: ["manual", "tag"] }] });
   const out = await storeSecrets(WP, VALUES, m.fetch);
   const text = out.join("\n");
-  assert.ok(!text.includes(GH) && !text.includes("BEGIN OPENSSH") && !text.includes(KEY.split("\n")[1] as string));
-  assert.match(out.at(-2) ?? "", /secret names of .*: site_deploy_key, site_deploy_token, tb_release_token/);
+  assert.ok(!text.includes(GH) && !text.includes(FORGE) && !text.includes("BEGIN OPENSSH") && !text.includes(KEY.split("\n")[1] as string));
+  assert.ok(out.some((l) => /secret names of .*: site_deploy_key, site_deploy_token, tb_release_token/.test(l)));
   for (const c of m.calls) assert.ok(!c.path.includes(GH) && !c.path.includes("OPENSSH"), "no value in a URL");
   assert.equal(m.calls.filter((c) => JSON.stringify(c.body ?? {}).includes(GH)).length, 1);
   assert.equal(m.calls.filter((c) => JSON.stringify(c.body ?? {}).includes("BEGIN OPENSSH")).length, 1);

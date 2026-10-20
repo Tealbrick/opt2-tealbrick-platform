@@ -16,6 +16,11 @@ let server: Server;
 let url = "";
 const calls: { method: string; path: string }[] = [];
 const repoIds = new Map<string, number>();
+const IMAGE = "forge.polygonface.com/polygonface/tb-site-deploy:1.0.0";
+/** What the fake Woodpecker lists for the website repo. */
+let websiteRegistries: { address: string; username: string }[] = [{ address: "forge.polygonface.com", username: "forge-user" }];
+let websiteSecrets: { name: string; events: string[]; images: string[] }[] = [];
+const websiteId = () => repoIds.get("opt2-tealbrick-website");
 let nextId = 100;
 
 before(async () => {
@@ -38,7 +43,10 @@ before(async () => {
         return json(200, { id: repoIds.get(name), active: true, full_name: `Tealbrick/${name}` });
       }
       if (/^\/api\/repos\/\d+$/.test(path) && req.method === "PATCH") return json(200, {});
-      if (/^\/api\/repos\/\d+\/secrets$/.test(path)) return json(200, [{ name: "stray_secret", events: ["push"] }]);
+      const idOf = /^\/api\/repos\/(\d+)\//.exec(path)?.[1];
+      const isWebsite = idOf !== undefined && Number(idOf) === websiteId();
+      if (/^\/api\/repos\/\d+\/registries$/.test(path)) return json(200, isWebsite ? websiteRegistries : []);
+      if (/^\/api\/repos\/\d+\/secrets$/.test(path)) return json(200, [{ name: "stray_secret", events: ["push"] }, ...(isWebsite ? websiteSecrets : [])]);
       if (/^\/api\/repos\/\d+\/secrets\/[^/]+$/.test(path)) return json(req.method === "DELETE" ? 204 : 404, {});
       if (path.startsWith("/api/orgs/lookup/")) return json(200, { id: 1 });
       if (path === "/api/orgs/1/secrets") return json(200, []);
@@ -50,6 +58,11 @@ before(async () => {
 });
 after(() => server.close());
 beforeEach(() => {
+  websiteRegistries = [{ address: "forge.polygonface.com", username: "forge-user" }];
+  websiteSecrets = [
+    { name: "site_deploy_token", events: ["push", "tag"], images: [IMAGE] },
+    { name: "site_deploy_key", events: ["push", "tag"], images: [IMAGE] },
+  ];
   calls.length = 0;
   repoIds.clear();
   nextId = 100;
@@ -146,4 +159,38 @@ test("without --repo every listed repo is handled (the filter is opt-in)", async
     calls.some((c) => c.path.startsWith("/api/orgs/")),
     "the full run still cleans org-level secrets",
   );
+});
+
+test("--repo website: the deploy secrets and the registry credential are kept (never deleted); a stray secret is still deleted", async () => {
+  const r = await run(["--repo", "website"]);
+  assert.equal(r.code, 0, r.out);
+  const id = websiteId();
+  assert.ok(id, "website repo handled");
+  const deletes = calls.filter((c) => c.method === "DELETE").map((c) => c.path);
+  assert.deepEqual(deletes, [`/api/repos/${id}/secrets/stray_secret`], "only the stray secret is deleted");
+  assert.ok(!calls.some((c) => c.path.includes("/registries") && c.method !== "GET"), "registries are only read");
+  assert.match(r.out, /opt2-tealbrick-website secret site_deploy_token: kept \(hand-made, C222\) \[push,tag\]\n/);
+  assert.match(r.out, /opt2-tealbrick-website secret site_deploy_key: kept \(hand-made, C222\) \[push,tag\]\n/);
+  assert.match(r.out, /opt2-tealbrick-website registry forge\.polygonface\.com: kept \(hand-made, C293a\) \[user forge-user\]/);
+});
+
+test("--repo website: a wrong image filter on a kept secret is a WARNING, still not deleted; a missing registry is reported, not created", async () => {
+  websiteSecrets = [{ name: "site_deploy_key", events: ["push", "tag"], images: [] }];
+  websiteRegistries = [];
+  const r = await run(["--repo", "website"]);
+  assert.equal(r.code, 0, r.out);
+  assert.match(
+    r.out,
+    /site_deploy_key: kept .* WARNING: want events \[push,tag\] and the image filter \[forge\.polygonface\.com\/polygonface\/tb-site-deploy:1\.0\.0\]/,
+  );
+  assert.match(r.out, /site_deploy_token: MISSING/);
+  assert.match(r.out, /registry forge\.polygonface\.com: MISSING/);
+  assert.ok(!calls.some((c) => c.method === "DELETE" && /site_deploy|registries/.test(c.path)));
+  assert.ok(!calls.some((c) => c.path.includes("/registries") && c.method !== "GET"));
+});
+
+test("--repo fleet: no registry call at all (the registry rule is for the website repo only)", async () => {
+  const r = await run(["--repo", "fleet"]);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(!calls.some((c) => c.path.includes("/registries")));
 });

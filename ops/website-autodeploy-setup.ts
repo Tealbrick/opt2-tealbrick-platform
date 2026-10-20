@@ -1,8 +1,11 @@
-// C293a: Martin stores the two website deploy secrets in Woodpecker. Agents never run the real mode and never see the values.
+// C293a: Martin stores the website deploy secrets and the plugin-image registry credential in Woodpecker. Agents never run the real mode and never see the values.
 //   node ops/website-autodeploy-setup.ts --dry-run   prints what this script would do (no prompt, no network call)
-//   node ops/website-autodeploy-setup.ts             asks for the two values (hidden input), stores them as Woodpecker repo secrets of
-//                                                    Tealbrick/opt2-tealbrick-website (events push and tag only, no image filter),
-//                                                    then lists the secret NAMES and checks the events
+//   node ops/website-autodeploy-setup.ts             asks for the values (hidden input), stores them as Woodpecker repo secrets of
+//                                                    Tealbrick/opt2-tealbrick-website (events push and tag only, image filter = exactly the
+//                                                    plugin image forge.polygonface.com/polygonface/tb-site-deploy:<VERSION>) and sets the
+//                                                    repo's registry credential for forge.polygonface.com, then lists NAMES and filters only
+//   registry           a Forgejo login name and a Forgejo token with read:package ONLY: Woodpecker agents use it to pull the plugin image.
+//                      Publish the image first (ops/site-deploy-plugin-publish.ts).
 //   site_deploy_key    the PRIVATE half of a WRITE deploy key of the website repo (ed25519, no passphrase). It is the only thing that
 //                      moves the branches site-dev and site-live (git push over SSH from .woodpecker/site-deploy.yaml).
 //   site_deploy_token  a GitHub fine-grained token, ONLY repo opt2-tealbrick-website, Contents read and write, expiry 1 year. It writes the
@@ -11,8 +14,10 @@
 // Rules: values are never printed, never on argv, never in a file, never in a URL. The Woodpecker URL must be https. Woodpecker URL and
 // token come from the operator config (~/.config/opt2-tealbrick/hosts.env and woodpecker-token; the loader of ops/wp-failed.ts).
 import { resolve } from "node:path";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { askHidden } from "./prod-secrets.ts";
+import { pluginImage, REGISTRY_HOST } from "./site-deploy-plugin/image.ts";
 import { loadConfig, redact as redactWp } from "./wp-failed.ts";
 
 export const REPO = "Tealbrick/opt2-tealbrick-website";
@@ -75,14 +80,30 @@ export function redact(text: string, values: readonly string[]): string {
 }
 
 export function planLines(): string[] {
+  const image = pluginImage();
   return [
-    `repo: ${REPO} (Woodpecker repo secrets, this repo only)`,
+    `repo: ${REPO} (Woodpecker repo secrets and registry credential, this repo only)`,
     `secret names: ${SECRET_NAMES.join(", ")}`,
-    `events: ${EVENTS.join(", ")} (never pull_request, never manual); no image filter`,
+    `events: ${EVENTS.join(", ")} (never pull_request, never manual)`,
+    `image filter: exactly ${image} (only the deploy plugin can read the secrets)`,
+    `registry credential: ${REGISTRY_HOST} (agents pull the plugin image with it)`,
     `${KEY_SECRET}: you paste the PRIVATE key of a write deploy key (ed25519, no passphrase)`,
     `${TOKEN_SECRET}: you paste a GitHub fine-grained token (only repo opt2-tealbrick-website; Contents read and write; expiry 1 year; release record only)`,
-    "afterwards the script lists the secret NAMES of the repo and checks the events; it never prints a value",
+    `registry: you type your Forgejo login name and paste a Forgejo token with read:package ONLY`,
+    "afterwards the script lists the secret NAMES, their events and image filters, and the registry address; it never prints a value",
   ];
+}
+
+/** A Forgejo access token (40 hex characters from the UI). */
+export const FORGE_TOKEN_RE = /^[A-Za-z0-9]{20,}$/;
+export const FORGE_USER_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,38}$/;
+
+export interface SetupValues {
+  [TOKEN_SECRET]: string;
+  [KEY_SECRET]: string;
+  /** Forgejo login and read:package token for the registry credential */
+  forgeUser: string;
+  forgeToken: string;
 }
 
 export function parseArgs(argv: readonly string[]): { dryRun: boolean } {
@@ -90,10 +111,10 @@ export function parseArgs(argv: readonly string[]): { dryRun: boolean } {
   return { dryRun: argv.includes("--dry-run") };
 }
 
-/** Stores the two secrets and verifies them. Returns the lines to print. Every Woodpecker error is redacted before it is thrown. */
-export async function storeSecrets(wp: WpConfig, values: { [TOKEN_SECRET]: string; [KEY_SECRET]: string }, f: Fetch = fetch): Promise<string[]> {
+/** Stores the registry credential and the two secrets and verifies them. Returns the lines to print. Every Woodpecker error is redacted before it is thrown. */
+export async function storeSecrets(wp: WpConfig, values: SetupValues, f: Fetch = fetch, image: string = pluginImage()): Promise<string[]> {
   requireHttps(wp.url);
-  const secrets = [values[TOKEN_SECRET], values[KEY_SECRET], wp.token, ...values[KEY_SECRET].split(/\r?\n/)];
+  const secrets = [values[TOKEN_SECRET], values[KEY_SECRET], values.forgeToken, wp.token, ...values[KEY_SECRET].split(/\r?\n/)];
   const call = async <T>(method: string, path: string, body?: unknown): Promise<{ status: number; json: T | null }> => {
     let res: Response;
     try {
@@ -129,9 +150,17 @@ export async function storeSecrets(wp: WpConfig, values: { [TOKEN_SECRET]: strin
   if (repoId === null) throw new Error(`${REPO} is not in Woodpecker (activate it first: node ops/woodpecker-activate.ts --repo website)`);
 
   const done: string[] = [];
+  // The registry credential: Woodpecker agents pull the plugin image from the Forgejo registry with it. The list never returns the password.
+  const regExists = (await call("GET", `/repos/${repoId}/registries/${encodeURIComponent(REGISTRY_HOST)}`)).status === 200;
+  const regBody = { address: REGISTRY_HOST, username: values.forgeUser, password: values.forgeToken };
+  const regWrite = regExists
+    ? await call("PATCH", `/repos/${repoId}/registries/${encodeURIComponent(REGISTRY_HOST)}`, regBody)
+    : await call("POST", `/repos/${repoId}/registries`, regBody);
+  ok(regWrite.status, `${regExists ? "update" : "create"} registry ${REGISTRY_HOST}`);
+  done.push(`${regExists ? "updated" : "created"} registry ${REGISTRY_HOST}`);
   for (const name of SECRET_NAMES) {
     const exists = (await call("GET", `/repos/${repoId}/secrets/${name}`)).status === 200;
-    const body = { name, value: values[name as keyof typeof values], events: [...EVENTS], images: [] as string[] };
+    const body = { name, value: values[name as keyof typeof values], events: [...EVENTS], images: [image] };
     const write = exists ? await call("PATCH", `/repos/${repoId}/secrets/${name}`, body) : await call("POST", `/repos/${repoId}/secrets`, body);
     ok(write.status, `${exists ? "update" : "create"} secret ${name}`);
     done.push(`${exists ? "updated" : "created"} ${name}`);
@@ -147,9 +176,28 @@ export async function storeSecrets(wp: WpConfig, values: { [TOKEN_SECRET]: strin
     const events = [...(mine.events ?? [])].sort();
     if (events.join(",") !== [...EVENTS].sort().join(","))
       throw new Error(`${name} has the events [${events.join(", ")}] but must have exactly [${EVENTS.join(", ")}]`);
-    if ((mine.images ?? []).length > 0) throw new Error(`${name} has an image filter; Woodpecker refuses image filters on command steps`);
+    const images = [...(mine.images ?? [])].sort();
+    if (images.join(",") !== image) throw new Error(`${name} has the image filter [${images.join(", ")}] but must be exactly [${image}]`);
   }
-  return [...done.map((d) => `${d} for ${REPO} (events ${EVENTS.join(", ")})`), `secret names of ${REPO}: ${names.join(", ")}`, "done"];
+  const regList = await call<{ address?: string; username?: string }[]>("GET", `/repos/${repoId}/registries`);
+  ok(regList.status, "list registries");
+  const reg = (regList.json ?? []).find((r) => r.address === REGISTRY_HOST);
+  if (!reg) throw new Error(`the registry ${REGISTRY_HOST} is not in the registry list after the write`);
+  if (reg.username !== values.forgeUser) throw new Error(`the registry ${REGISTRY_HOST} has another username than the one you typed`);
+  return [
+    ...done.map((d) => `${d} for ${REPO}`),
+    `secrets: events ${EVENTS.join(", ")}, image filter ${image}`,
+    `secret names of ${REPO}: ${names.join(", ")}`,
+    `registry addresses of ${REPO}: ${(regList.json ?? []).map((r) => r.address).join(", ")}`,
+    "done",
+  ];
+}
+
+async function askVisible(prompt: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stderr, terminal: true });
+  const answer = await new Promise<string>((r) => rl.question(prompt, r));
+  rl.close();
+  return answer.trim();
 }
 
 /** Hidden multi-line paste: reads until the END line of an OpenSSH private key (or Ctrl+C). Nothing is echoed or printed. */
@@ -194,7 +242,7 @@ async function main(): Promise<void> {
   if (!process.stdin.isTTY) throw new Error("run this in a terminal (hidden input needs a TTY); values are never read from a pipe");
   const wp = loadConfig();
   requireHttps(wp.url);
-  const values = { [KEY_SECRET]: "", [TOKEN_SECRET]: "" };
+  const values: SetupValues = { [KEY_SECRET]: "", [TOKEN_SECRET]: "", forgeUser: "", forgeToken: "" };
   for (let attempt = 1; ; attempt++) {
     const v = await askHiddenKey("Deploy PRIVATE key (the whole file, ed25519, no passphrase): ");
     const why = checkKey(v);
@@ -217,11 +265,24 @@ async function main(): Promise<void> {
     console.log(`  refused (${why})`);
     if (attempt >= 3) throw new Error("three refused attempts; nothing was stored");
   }
+  values.forgeUser = await askVisible(`Your Forgejo login name (the owner of the read:package token) for ${REGISTRY_HOST}: `);
+  if (!FORGE_USER_RE.test(values.forgeUser)) throw new Error("that is not a Forgejo login name; nothing was stored");
+  for (let attempt = 1; ; attempt++) {
+    const v = await askHidden("Forgejo token with read:package ONLY: ");
+    if (FORGE_TOKEN_RE.test(v)) {
+      values.forgeToken = v;
+      console.log(`  received the Forgejo token: ${v.length} characters`);
+      break;
+    }
+    console.log("  refused (a Forgejo token is letters and digits only, 20 or more)");
+    if (attempt >= 3) throw new Error("three refused attempts; nothing was stored");
+  }
   try {
     for (const l of await storeSecrets(wp, values)) console.log(l);
   } finally {
     values[KEY_SECRET] = "";
     values[TOKEN_SECRET] = "";
+    values.forgeToken = "";
   }
 }
 
