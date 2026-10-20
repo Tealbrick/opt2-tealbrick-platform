@@ -79,11 +79,15 @@ WARNING: Make two separate tokens. The write token never goes into Woodpecker. T
 8. Run `chmod 600 ~/.config/opt2-tealbrick/forge-packages-token`.
 9. Run `ls -l ~/.config/opt2-tealbrick/forge-packages-token`. Make sure the mode shows `-rw-------`.
 10. Clear the clipboard.
-11. Click "Generate Token" again. Set the token name to `site-deploy-pull`.
-12. Set the permission "package" to "Read". Leave every other permission at "No access".
-13. Click "Generate Token". Copy the token. Do not save it in a file. Step d asks for it.
-14. Tell the operator: "the publish token file is ready". The operator publishes the image (runbook, part a).
-15. Wait for the operator to report the image digest. Do not start step d before that.
+11. Recommended: use a dedicated Forgejo machine user for the read token. The setup script cannot check the scope of the token.
+    A machine user that can only read packages limits the damage if the token leaks.
+12. Create the machine user `site-deploy-pull` in Forgejo (Site Administration, User Accounts). Give it read access to the package owner `polygonface`.
+13. Sign in as that user. Go to Settings, then Applications. Set the token name to `site-deploy-pull`.
+14. Set the permission "package" to "Read". Leave every other permission at "No access".
+15. Click "Generate Token". Copy the token. Do not save it in a file. Step d asks for it.
+16. If you do not use a machine user, make the token with your own login instead. Then step d asks for your login name.
+17. Tell the operator: "the publish token file is ready". The operator publishes the image (runbook, part a).
+18. Wait for the operator to report the image digest. Do not start step d before that.
 
 ## d. Store the key, the tokens and the registry login in Woodpecker
 
@@ -91,20 +95,22 @@ WARNING: The script asks for the values with hidden input. Nothing shows on the 
 The script asks for your Forgejo login name in clear text. This is not a secret.
 
 1. Open a terminal in the platform repo (after its pull request is merged, or on the branch `feat/c293-website-autodeploy-setup`).
-2. Run `node ops/website-autodeploy-setup.ts --dry-run`. Read the plan.
+2. Run `node ops/website-autodeploy-setup.ts --dry-run`. Read the plan. The image filter must end with `@sha256:` and the digest from the operator.
 3. Run `node ops/website-autodeploy-setup.ts`.
 4. Run `cat ~/tmp-site-deploy/site_deploy_key` in a second terminal tab. Copy the whole output.
 5. Paste it in the first tab. The script stops reading at the last line of the key.
 6. Paste the GitHub token. Press Enter.
-7. Type your Forgejo login name. Press Enter.
+7. Type the Forgejo login name of the owner of the read token (the machine user). Press Enter.
 8. Paste the Forgejo read token from step c2. Press Enter.
 9. Wait for the last line. It must say `done`.
 10. Make sure the line "secret names" lists `site_deploy_key` and `site_deploy_token`.
-11. Make sure the line "secrets" shows the image filter `forge.polygonface.com/polygonface/tb-site-deploy:1.0.0`.
+11. Make sure the line "secrets" shows the image filter `forge.polygonface.com/polygonface/tb-site-deploy:1.0.0@sha256:` and 64 characters.
 12. Make sure the line "registry addresses" lists `forge.polygonface.com`.
 13. Delete the two files in `~/tmp-site-deploy` yourself. Delete the folder. Clear the clipboard.
 14. Close both terminal tabs.
 
+If the script says "not recorded yet", the operator did not commit `ops/site-deploy-plugin/IMAGE-DIGEST`. Ask the operator.
+If the rollout test later shows that Woodpecker does not match the digest, the operator runs step d again with `--image-filter forge.polygonface.com/polygonface/tb-site-deploy:1.0.0`. Then a person who can write to the registry could replace the tag. That is the known residual risk.
 If the script says "not in Woodpecker", run `node ops/woodpecker-activate.ts --repo website` and run step d again.
 If the script says the Woodpecker URL is not https, correct `WOODPECKER_URL` in `~/.config/opt2-tealbrick/hosts.env`.
 

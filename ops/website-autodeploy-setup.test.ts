@@ -1,13 +1,14 @@
 // C293a: ops/website-autodeploy-setup.ts with a mocked Woodpecker (no network, no real token, no prompt).
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { pluginImage } from "./site-deploy-plugin/image.ts";
+import { pinnedImage, pluginImage } from "./site-deploy-plugin/image.ts";
 import {
   checkKey,
   checkToken,
   EVENTS,
   FORGE_TOKEN_RE,
   FORGE_USER_RE,
+  imageFilter,
   KEY_SECRET,
   parseArgs,
   planLines,
@@ -35,7 +36,8 @@ function fakeKey(cipher = "none", type = "ssh-ed25519"): string {
 const KEY = fakeKey();
 const FORGE = ["forgetoken", "TESTONLY0123456789abcdef0123456789"].join("");
 const VALUES: SetupValues = { [TOKEN_SECRET]: GH, [KEY_SECRET]: KEY, forgeUser: "martin", forgeToken: FORGE };
-const IMAGE = pluginImage();
+const DIGEST = `sha256:${"b".repeat(64)}`;
+const IMAGE = `${pluginImage()}@${DIGEST}`;
 const T = { timeout: 10_000 };
 
 interface Call {
@@ -141,18 +143,42 @@ test("requireHttps: a Woodpecker URL that is not https is refused", T, async () 
   requireHttps("https://wp.example.test");
   for (const bad of ["http://wp.example.test", "ftp://x", "wp.example.test", "", "javascript:alert(1)"]) assert.throws(() => requireHttps(bad), /https/);
   const m = mock();
-  await assert.rejects(() => storeSecrets({ url: "http://wp.example.test", token: WP.token }, VALUES, m.fetch), /https/);
+  await assert.rejects(() => storeSecrets({ url: "http://wp.example.test", token: WP.token }, VALUES, IMAGE, m.fetch), /https/);
   assert.equal(m.calls.length, 0, "no call (and so no secret) goes to a plain-http URL");
 });
 
-test("parseArgs: only --dry-run", T, () => {
-  assert.deepEqual(parseArgs([]), { dryRun: false });
-  assert.deepEqual(parseArgs(["--dry-run"]), { dryRun: true });
+test("parseArgs: --dry-run and --image-filter <value> only", T, () => {
+  assert.deepEqual(parseArgs([]), { dryRun: false, imageFilter: null });
+  assert.deepEqual(parseArgs(["--dry-run"]), { dryRun: true, imageFilter: null });
+  assert.deepEqual(parseArgs(["--image-filter", pluginImage()]), { dryRun: false, imageFilter: pluginImage() });
+  assert.throws(() => parseArgs(["--image-filter"]), /needs a value/);
   assert.throws(() => parseArgs(["--force"]), /unknown option/);
 });
 
+test("imageFilter: the default is the exact digest-pinned image; the placeholder digest refuses; name:tag is the documented fallback", T, () => {
+  assert.equal(imageFilter(null, IMAGE), IMAGE);
+  assert.throws(() => imageFilter(null, null), /not recorded yet.*--image-filter/);
+  assert.equal(imageFilter(pluginImage(), null), pluginImage(), "fallback: name:tag");
+  assert.equal(imageFilter(IMAGE, null), IMAGE);
+  for (const bad of [
+    "docker.io/library/node:24",
+    `${pluginImage()}@sha256:xyz`,
+    "forge.polygonface.com/polygonface/other:1.0.0",
+    "forge.polygonface.com/polygonface/tb-site-deploy:9.9.9",
+    `${pluginImage()}@sha256:${"b".repeat(64)} x`,
+  ])
+    assert.throws(() => imageFilter(bad, null));
+});
+
+test("the recorded image of this repo is still the placeholder (until the publish script ran): the default filter then refuses", T, () => {
+  // IMAGE-DIGEST holds a placeholder in the repo; after the operator publishes it holds the real digest and this test must be changed with it.
+  const recorded = pinnedImage();
+  if (recorded === null) assert.throws(() => imageFilter(null), /not recorded yet/);
+  else assert.equal(imageFilter(null), recorded);
+});
+
 test("planLines: names the repo, both secrets, the registry, exactly push + tag and the image filter; no value", T, () => {
-  const text = planLines().join("\n");
+  const text = planLines(IMAGE).join("\n");
   assert.ok(text.includes(IMAGE) && text.includes("forge.polygonface.com") && text.includes("read:package"));
   assert.ok(text.includes(REPO) && text.includes("site_deploy_token") && text.includes("site_deploy_key"));
   assert.ok(text.includes("push, tag"));
@@ -161,13 +187,13 @@ test("planLines: names the repo, both secrets, the registry, exactly push + tag 
 
 test("storeSecrets: stores exactly two secrets, each with events exactly push + tag and the image filter = the plugin image", T, async () => {
   const m = mock();
-  const out = await storeSecrets(WP, VALUES, m.fetch);
+  const out = await storeSecrets(WP, VALUES, IMAGE, m.fetch);
   const writes = m.calls.filter((c) => (c.method === "POST" || c.method === "PATCH") && c.path.includes("/secrets"));
   assert.equal(writes.length, 2);
   assert.deepEqual(writes.map((w) => w.body?.name).sort(), ["site_deploy_key", "site_deploy_token"]);
   for (const w of writes) {
     assert.deepEqual(w.body?.events, ["push", "tag"]);
-    assert.deepEqual(w.body?.images, ["forge.polygonface.com/polygonface/tb-site-deploy:1.0.0"]);
+    assert.deepEqual(w.body?.images, [`forge.polygonface.com/polygonface/tb-site-deploy:1.0.0@sha256:${"b".repeat(64)}`]);
     assert.deepEqual(w.body?.images, [IMAGE]);
   }
   assert.deepEqual([...EVENTS], ["push", "tag"]);
@@ -182,7 +208,7 @@ test(
   T,
   async () => {
     const m = mock();
-    const out = await storeSecrets(WP, VALUES, m.fetch);
+    const out = await storeSecrets(WP, VALUES, IMAGE, m.fetch);
     const regWrites = m.calls.filter((c) => (c.method === "POST" || c.method === "PATCH") && c.path.includes("/registries"));
     assert.equal(regWrites.length, 1);
     assert.deepEqual(regWrites[0]?.body, { address: "forge.polygonface.com", username: "martin", password: FORGE });
@@ -201,7 +227,7 @@ test("storeSecrets: an existing registry entry is updated (PATCH), other entries
       { address: "ghcr.io", username: "keep" },
     ],
   });
-  await storeSecrets(WP, VALUES, m.fetch);
+  await storeSecrets(WP, VALUES, IMAGE, m.fetch);
   assert.equal(m.calls.filter((c) => c.method === "PATCH" && c.path.includes("/registries/")).length, 1);
   assert.deepEqual(m.registries, [
     { address: "forge.polygonface.com", username: "martin" },
@@ -214,7 +240,7 @@ test("storeSecrets: refuses when Woodpecker keeps another image filter (none, or
   for (const storeImages of [[], ["docker.io/library/node:24"], [IMAGE, "docker.io/library/node:24"]]) {
     const m = mock({ storeImages });
     await assert.rejects(
-      () => storeSecrets(WP, VALUES, m.fetch),
+      () => storeSecrets(WP, VALUES, IMAGE, m.fetch),
       (e: Error) => /image filter \[.*\] but must be exactly/.test(e.message) && !e.message.includes(GH),
     );
   }
@@ -228,7 +254,7 @@ test("Forgejo login and token shapes", T, () => {
 
 test("storeSecrets: existing secrets are updated (PATCH), not duplicated, and the events are reset", T, async () => {
   const m = mock({ secrets: [{ name: "site_deploy_token", events: ["push", "tag", "pull_request"], images: [] }] });
-  const out = await storeSecrets(WP, VALUES, m.fetch);
+  const out = await storeSecrets(WP, VALUES, IMAGE, m.fetch);
   const secretWrites = m.calls.filter((c) => (c.method === "PATCH" || c.method === "POST") && c.path.includes("/secrets"));
   assert.equal(secretWrites.filter((c) => c.method === "PATCH").length, 1);
   assert.equal(secretWrites.filter((c) => c.method === "POST").length, 1);
@@ -238,7 +264,7 @@ test("storeSecrets: existing secrets are updated (PATCH), not duplicated, and th
 
 test("storeSecrets: no token, key or Forgejo token text in any output line or URL; each value is in exactly one request body", T, async () => {
   const m = mock({ secrets: [{ name: "tb_release_token", events: ["manual", "tag"] }] });
-  const out = await storeSecrets(WP, VALUES, m.fetch);
+  const out = await storeSecrets(WP, VALUES, IMAGE, m.fetch);
   const text = out.join("\n");
   assert.ok(!text.includes(GH) && !text.includes(FORGE) && !text.includes("BEGIN OPENSSH") && !text.includes(KEY.split("\n")[1] as string));
   assert.ok(out.some((l) => /secret names of .*: site_deploy_key, site_deploy_token, tb_release_token/.test(l)));
@@ -250,7 +276,7 @@ test("storeSecrets: no token, key or Forgejo token text in any output line or UR
 
 test("storeSecrets: verification reads names and events only and deletes nothing", T, async () => {
   const m = mock();
-  await storeSecrets(WP, VALUES, m.fetch);
+  await storeSecrets(WP, VALUES, IMAGE, m.fetch);
   assert.ok(m.calls.some((c) => c.method === "GET" && c.path.endsWith("/secrets")));
   assert.ok(m.calls.every((c) => c.method !== "DELETE"));
 });
@@ -258,20 +284,20 @@ test("storeSecrets: verification reads names and events only and deletes nothing
 test("storeSecrets: refuses when Woodpecker keeps other events than push + tag, naming the secret and not the value", T, async () => {
   const m = mock({ storeEvents: ["push", "tag", "pull_request"] });
   await assert.rejects(
-    () => storeSecrets(WP, VALUES, m.fetch),
+    () => storeSecrets(WP, VALUES, IMAGE, m.fetch),
     (e: Error) => /site_deploy_token has the events .* must have exactly \[push, tag\]/.test(e.message) && !e.message.includes(GH),
   );
 });
 
 test("storeSecrets: an unknown repo gives a clear error and writes nothing", T, async () => {
   const m = mock({ lookup: {} });
-  await assert.rejects(() => storeSecrets(WP, VALUES, m.fetch), /not in Woodpecker/);
+  await assert.rejects(() => storeSecrets(WP, VALUES, IMAGE, m.fetch), /not in Woodpecker/);
   assert.ok(m.calls.every((c) => c.method === "GET"));
 });
 
 test("storeSecrets: falls back to the old owner name Woodpecker may still use", T, async () => {
   const m = mock({ lookup: { "Martin-Atrin/opt2-tealbrick-website": 42 } });
-  assert.equal((await storeSecrets(WP, VALUES, m.fetch)).at(-1), "done");
+  assert.equal((await storeSecrets(WP, VALUES, IMAGE, m.fetch)).at(-1), "done");
 });
 
 test("storeSecrets: a Woodpecker failure and a network error carry no token and no key", T, async () => {
@@ -282,14 +308,14 @@ test("storeSecrets: a Woodpecker failure and a network error carry no token and 
     return json(500, { message: `boom ${GH}` });
   }) as typeof fetch;
   await assert.rejects(
-    () => storeSecrets(WP, VALUES, failing),
+    () => storeSecrets(WP, VALUES, IMAGE, failing),
     (e: Error) => /HTTP 500/.test(e.message) && !e.message.includes(GH),
   );
   const down = (async () => {
     throw new Error(`connect refused ${GH} ${WP.token} ${KEY}`);
   }) as typeof fetch;
   await assert.rejects(
-    () => storeSecrets(WP, VALUES, down),
+    () => storeSecrets(WP, VALUES, IMAGE, down),
     (e: Error) =>
       !e.message.includes(GH) && !e.message.includes(WP.token) && !e.message.includes("OPENSSH") && !e.message.includes(KEY.split("\n")[1] as string),
   );

@@ -52,9 +52,28 @@ Expected output (build progress is not shown), exit 0. The digest is different e
 pushed forge.polygonface.com/polygonface/tb-site-deploy:1.0.0
 digest sha256:<64 hex characters>
 image reference: forge.polygonface.com/polygonface/tb-site-deploy:1.0.0@sha256:<64 hex characters>
+recorded in ops/site-deploy-plugin/IMAGE-DIGEST (commit it)
+next: put the image reference above in .woodpecker/site-deploy.yaml of the website repo (both steps), then run ops/website-autodeploy-setup.ts
 ```
 
-Write the digest in the C293 ledger line. Tell Martin: "the image is published, digest <first 12 characters>". Martin then runs step d.
+Record the digest. The file `ops/site-deploy-plugin/IMAGE-DIGEST` now holds `1.0.0 sha256:<64 hex characters>`.
+
+```sh
+git diff --stat
+```
+
+Expected: `ops/site-deploy-plugin/IMAGE-DIGEST | 2 +-`.
+
+Commit and push the file. This is a normal commit on the platform branch.
+
+```sh
+git add ops/site-deploy-plugin/IMAGE-DIGEST
+git commit -m "ops: record the deploy plugin image digest (1.0.0)"
+git push
+```
+
+Then put the image reference (the `image reference:` line) into BOTH steps of `.woodpecker/site-deploy.yaml` in the website repo, in place of the marked placeholder. The website CI check `scripts/check-deploy-pin.ts` stays red while the placeholder is there.
+Tell Martin: "the image is published, digest <first 12 characters>". Martin then runs step d.
 
 3. Reuse check. Run the same command again.
 
@@ -94,10 +113,18 @@ git switch -c c293-rollout-test origin/main
 
 Expected: `Switched to a new branch 'c293-rollout-test'`.
 
-2. Write the test workflow. It prints only `present` or `absent`, never a value. Copy it exactly.
+2. Write the test workflow. It prints only `present` or `absent`, never a value. It uses OUR plugin image from the website workflow (the digest-pinned reference).
+   The first command reads that reference. Expected: one line `forge.polygonface.com/polygonface/tb-site-deploy:1.0.0@sha256:` and 64 hex characters.
 
 ```sh
-cat > .woodpecker/rollout-test.yaml <<'YAML'
+IMAGE_REF=$(sed -n 's/^    image: \(forge[^ ]*\)$/\1/p' .woodpecker/site-deploy.yaml | head -1)
+echo "$IMAGE_REF"
+```
+
+   If the line shows `PLACEHOLDER`, STOP: the digest is not in the workflow yet (part a).
+
+```sh
+cat <<'YAML' | sed "s|__IMAGE__|$IMAGE_REF|g" > .woodpecker/rollout-test.yaml
 # C293 rollout test. Do not merge. Prints only present/absent, never a value.
 labels:
   platform: linux/amd64
@@ -105,6 +132,7 @@ when:
   - event: push
     branch: c293-rollout-test
 steps:
+  # (0) control with a plain image: proves only that the image filter does not match this image
   - name: secrets-in-command-step
     image: node:24.21.0-bookworm@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0
     environment:
@@ -113,12 +141,56 @@ steps:
       K:
         from_secret: site_deploy_key
     commands:
-      - 'if [ -n "$T" ]; then echo "site_deploy_token: present"; else echo "site_deploy_token: absent"; fi'
-      - 'if [ -n "$K" ]; then echo "site_deploy_key: present"; else echo "site_deploy_key: absent"; fi'
-      - 'if [ -n "$PLUGIN_TOKEN" ]; then echo "PLUGIN_TOKEN: present"; else echo "PLUGIN_TOKEN: absent"; fi'
-      - 'if [ -n "$PLUGIN_DEPLOY_KEY" ]; then echo "PLUGIN_DEPLOY_KEY: present"; else echo "PLUGIN_DEPLOY_KEY: absent"; fi'
+      - 'if [ -n "$T" ]; then echo "0 site_deploy_token: present"; else echo "0 site_deploy_token: absent"; fi'
+      - 'if [ -n "$K" ]; then echo "0 site_deploy_key: present"; else echo "0 site_deploy_key: absent"; fi'
+      - 'if [ -n "$PLUGIN_TOKEN" ]; then echo "0 PLUGIN_TOKEN: present"; else echo "0 PLUGIN_TOKEN: absent"; fi'
+      - 'if [ -n "$PLUGIN_DEPLOY_KEY" ]; then echo "0 PLUGIN_DEPLOY_KEY: present"; else echo "0 PLUGIN_DEPLOY_KEY: absent"; fi'
+  # (i) OUR plugin image, with commands
+  - name: plugin-image-with-commands
+    image: __IMAGE__
+    settings:
+      mode: dev
+      token:
+        from_secret: site_deploy_token
+      deploy_key:
+        from_secret: site_deploy_key
+    commands:
+      - 'if [ -n "$PLUGIN_TOKEN" ]; then echo "i PLUGIN_TOKEN: present"; else echo "i PLUGIN_TOKEN: absent"; fi'
+      - 'if [ -n "$PLUGIN_DEPLOY_KEY" ]; then echo "i PLUGIN_DEPLOY_KEY: present"; else echo "i PLUGIN_DEPLOY_KEY: absent"; fi'
+  # (ii) OUR plugin image, with an entrypoint
+  - name: plugin-image-with-entrypoint
+    image: __IMAGE__
+    settings:
+      mode: dev
+      token:
+        from_secret: site_deploy_token
+      deploy_key:
+        from_secret: site_deploy_key
+    entrypoint:
+      - sh
+      - -c
+      - 'if [ -n "$PLUGIN_TOKEN" ]; then echo "ii PLUGIN_TOKEN: present"; else echo "ii PLUGIN_TOKEN: absent"; fi; if [ -n "$PLUGIN_DEPLOY_KEY" ]; then echo "ii PLUGIN_DEPLOY_KEY: present"; else echo "ii PLUGIN_DEPLOY_KEY: absent"; fi'
+  # (iii) OUR plugin image, with environment (a from_secret variable). The entrypoint only prints.
+  - name: plugin-image-with-environment
+    image: __IMAGE__
+    settings:
+      mode: dev
+      token:
+        from_secret: site_deploy_token
+      deploy_key:
+        from_secret: site_deploy_key
+    environment:
+      E_TOKEN:
+        from_secret: site_deploy_token
+      E_KEY:
+        from_secret: site_deploy_key
+    entrypoint:
+      - sh
+      - -c
+      - 'for V in E_TOKEN E_KEY PLUGIN_TOKEN PLUGIN_DEPLOY_KEY; do X=$(printenv "$V"); if [ -n "$X" ]; then echo "iii $V: present"; else echo "iii $V: absent"; fi; done'
+  # (control) the real plugin step, settings only: must get the secrets (it refuses because the commit is not on main)
   - name: plugin-on-branch
-    image: forge.polygonface.com/polygonface/tb-site-deploy:1.0.0
+    image: __IMAGE__
     settings:
       mode: dev
       token:
@@ -142,17 +214,24 @@ Expected: the push ends with `* [new branch]      c293-rollout-test -> c293-roll
 4. Read the result. Open Woodpecker, the repo `Tealbrick/opt2-tealbrick-website`, Pipelines. Open the newest pipeline (branch `c293-rollout-test`).
    You can also run `node ops/wp-failed.ts Tealbrick/opt2-tealbrick-website <the commit SHA>` from `$PLATFORM`. It shows the log of the failed step only.
 
-5. Expected result, step `secrets-in-command-step` (open its log). All four lines say `absent`:
+5. Expected result for the four test steps. Open the log of each step. A step prints only `present` or `absent`.
+   Expected for each of these steps: it fails to start, OR every line it prints says `absent`:
+   - `secrets-in-command-step` (plain image): lines that start with `0`.
+   - `plugin-image-with-commands` (i): lines that start with `i`.
+   - `plugin-image-with-entrypoint` (ii): lines that start with `ii`.
+   - `plugin-image-with-environment` (iii): lines that start with `iii`.
 
 ```
-site_deploy_token: absent
-site_deploy_key: absent
-PLUGIN_TOKEN: absent
-PLUGIN_DEPLOY_KEY: absent
+0 site_deploy_token: absent        (and the other three "0" lines)
+i PLUGIN_TOKEN: absent             (and "i PLUGIN_DEPLOY_KEY: absent")
+ii PLUGIN_TOKEN: absent            (and "ii PLUGIN_DEPLOY_KEY: absent")
+iii E_TOKEN: absent                (and E_KEY, PLUGIN_TOKEN, PLUGIN_DEPLOY_KEY: absent)
 ```
 
-   Also acceptable: Woodpecker refuses the whole pipeline and says the secret cannot be used with this image. That also means "not readable". Write down the message.
-   FAIL: any line says `present`. Then the secrets are readable by a writer's branch. STOP, tell Martin to delete both Woodpecker secrets at once, and report.
+   "Fails to start" is also a pass: Woodpecker may refuse a step that has `commands`, `entrypoint` or `environment` together with `settings`. Write down the message of each step.
+   If Woodpecker refuses the WHOLE pipeline with one error, remove the step it names from the file, push again, and repeat until every step has run or has been refused on its own. Write down each result.
+   FAIL: ANY line says `present`. STOP. The secrets are readable by a branch workflow. S2-b STAYS OPEN. Tell Martin to delete both Woodpecker secrets at once, and report.
+   Note: step (0) alone is not enough. It uses a plain image, so `absent` there only shows that the image filter does not match that image. Steps (i), (ii) and (iii) use our own image.
 
 6. Expected result, step `plugin-on-branch` (open its log). The step ends red (exit code 1). The log shows:
 
@@ -163,6 +242,7 @@ Rollback: merge a revert commit on main, then tag a new site version. ...
 ```
 
    The words `is not on main` must be there. The 12 hex characters are the first 12 of the SHA from step 3.
+   This step is also the check that the secret image filter matches the digest-pinned image: the step is a plugin step with the digest-pinned reference, and "is not on main" shows that the plugin got its token and key. If the log says `the setting "token" is empty` instead, Woodpecker did not match the filter `name:tag@sha256:<digest>` to the digest-pinned step. Then do this: STOP, tell Martin to run step d again with `--image-filter forge.polygonface.com/polygonface/tb-site-deploy:1.0.0` (the `name:tag` fallback), and run part (b) again. Write down that the fallback is in use. The known residual risk of the fallback: a person who can write to the registry could replace the tag (ops only).
    FAIL: the log says `site-dev:` with an arrow, or `DEV serves`. Then the plugin pushed from a branch. STOP and report. Tell Martin to pause the site ruleset and check `site-dev`.
 
 7. Check that nothing moved. Both commands must print the same commits that you wrote down in step 1:
@@ -258,7 +338,8 @@ gh api repos/Tealbrick/opt2-tealbrick-website/git/ref/heads/main --jq .object.sh
 ```
 
 Expected: both print the same 40 characters.
-3. Then Martin does step f (the DEV rollback test). The first LIVE tag comes only after it.
+3. A LIVE tag only works for a commit that DEV already has (the tip of `site-dev`, or older). If you tag a newer commit, the step `deploy-live` stops with `this commit has not been deployed to DEV yet: merge to main, wait for DEV, then tag`, and nothing moves.
+4. Then Martin does step f (the DEV rollback test). The first LIVE tag comes only after it.
 
 ## (e) If any step fails
 

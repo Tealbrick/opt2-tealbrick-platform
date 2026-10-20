@@ -13,7 +13,7 @@
  * refs/heads/main read fresh (compared as a SHA), the Woodpecker status ci/woodpecker/push/ci = success, for live the tag ref on GitHub
  * (peeled) pointing at the candidate and matching site-vX.Y.Z. Repo, branch names and URLs are constants of this file.
  *   dev   push a main commit to site-dev, wait for DEV to serve it (/version.txt), smoke DEV
- *   live  push the tag's commit to site-live, wait for LIVE, smoke LIVE, write the GitHub release record
+ *   live  (only for a commit DEV already has: the tip of site-dev or older, read fresh) push the tag's commit to site-live, wait for LIVE, smoke LIVE, write the GitHub release record
  * Railway deploys the website from the branches site-dev (DEV) and site-live (LIVE). No Railway token exists in CI.
  * Rules: keys and tokens come from the env and are never printed (also stripped from every error text); the push is a plain
  * `git push <sha>:refs/heads/<branch>`, never --force, so a non-fast-forward is refused by GitHub; nothing here deletes or moves a tag.
@@ -21,7 +21,7 @@
  * Exit codes: 0 done, 1 refused or failed, 2 wrong input.
  */
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -66,6 +66,8 @@ export interface Ctx {
   token: string;
   /** The private deploy key (OpenSSH text). Used only by pushBranch. */
   key: string;
+  /** Where the pipeline cloned the repo (default: the current folder). Read-only source of commit objects for the push. */
+  workspace?: string;
   deps: Deps;
 }
 export interface PollOptions {
@@ -178,20 +180,78 @@ export async function requireGreen(ctx: Ctx, sha: string): Promise<void> {
   }
 }
 
+/** Removes a directory tree the plugin made itself (files first, then folders). */
+function removeTree(path: string): void {
+  let entries: string[] = [];
+  try {
+    entries = readdirSync(path);
+  } catch {
+    try {
+      unlinkSync(path);
+    } catch {
+      /* already gone */
+    }
+    return;
+  }
+  for (const name of entries) {
+    const child = join(path, name);
+    if (lstatSync(child).isDirectory()) removeTree(child);
+    else unlinkSync(child);
+  }
+  try {
+    rmdirSync(path);
+  } catch {
+    /* not empty or gone */
+  }
+}
+
+/** The ONLY environment a git child gets: no PLUGIN_*, no CI_*, no secret. HOME is the temp folder; no global or system git config is read. */
+export function gitEnv(home: string, extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    PATH: process.env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin",
+    HOME: home,
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_TERMINAL_PROMPT: "0",
+    ...extra,
+  };
+}
+
+/** LIVE only takes a commit that DEV already has: the commit must be the tip of site-dev or an ancestor of it. site-dev is read fresh and resolved to a SHA. */
+export async function requireDeployedToDev(ctx: Ctx, sha: string): Promise<void> {
+  const r = await gh<{ object?: { sha?: string } }>(ctx, "GET", `/git/ref/heads/${DEV_BRANCH}`, undefined, [404]);
+  const dev = r.json?.object?.sha ?? "";
+  if (r.status === 404 || !SHA_RE.test(dev))
+    throw new DeployError(`branch ${DEV_BRANCH} does not exist or has no commit: LIVE needs a commit that DEV already has`);
+  const rel = await compare(ctx, dev, sha); // the commit as seen from site-dev: identical or behind = DEV has it
+  if (rel !== "identical" && rel !== "behind") {
+    throw new DeployError(
+      `commit ${sha.slice(0, 12)}: this commit has not been deployed to DEV yet: merge to main, wait for DEV, then tag (site-dev is at ${dev.slice(0, 12)}, the commit is ${rel === "ahead" ? "newer than DEV" : "not on the DEV line"}). Refused.`,
+    );
+  }
+}
+
 /** Pushes `sha` to refs/heads/<branch> over SSH with the deploy key: a plain push, never --force. The key lives in a 0600 file for the
- *  length of the call and is deleted afterwards; the host key of github.com is pinned. */
-export function pushBranch(ctx: Ctx, branch: string, sha: string): void {
+ *  length of the call and is deleted afterwards; the host key of github.com is pinned.
+ *  S4: git never runs in the pipeline workspace. It runs in a FRESH bare repo in a temp folder (no hooks, no repo config of the workspace is
+ *  read); the commit objects are read from the workspace through GIT_ALTERNATE_OBJECT_DIRECTORIES (and its shallow file is copied). The child
+ *  gets a minimal environment (gitEnv + GIT_SSH_COMMAND); `--no-verify` and `core.hooksPath=/dev/null` switch hooks off a second time.
+ *  `remote` and `workspace` are parameters for the tests only; run() never passes them. */
+export function pushBranch(ctx: Ctx, branch: string, sha: string, remote: string = SSH_REMOTE, workspace: string = ctx.workspace ?? process.cwd()): void {
   if (!BRANCHES.includes(branch) || !SHA_RE.test(sha))
     throw new DeployError(`refusing to push "${branch}": only ${BRANCHES.join(" and ")} take a full commit SHA`);
   const dir = mkdtempSync(join(tmpdir(), "site-deploy-"));
   const keyFile = join(dir, "key");
   const hostsFile = join(dir, "known_hosts");
+  const gitDir = join(dir, "repo.git");
   try {
     writeFileSync(keyFile, `${ctx.key.trim()}\n`, { mode: 0o600 });
     chmodSync(keyFile, 0o600);
     writeFileSync(hostsFile, `${GITHUB_HOST_KEY}\n`, { mode: 0o600 });
     const ssh = [
       "ssh",
+      "-F",
+      "/dev/null",
       "-i",
       keyFile,
       "-o",
@@ -203,28 +263,30 @@ export function pushBranch(ctx: Ctx, branch: string, sha: string): void {
       "-o",
       "BatchMode=yes",
     ];
-    const r = ctx.deps.git(["-c", "safe.directory=*", "push", SSH_REMOTE, `${sha}:refs/heads/${branch}`], {
-      GIT_SSH_COMMAND: ssh.join(" "),
-      GIT_TERMINAL_PROMPT: "0",
-    });
+    const init = ctx.deps.git(["init", "--bare", "--quiet", "--template=", gitDir], gitEnv(dir));
+    if (init.status !== 0) throw new DeployError(scrub(ctx, `git init of the temporary repo failed (exit ${init.status}): ${init.stderr.trim().slice(-200)}`));
+    const shallow = join(workspace, ".git", "shallow");
+    if (existsSync(shallow)) writeFileSync(join(gitDir, "shallow"), readFileSync(shallow));
+    const r = ctx.deps.git(
+      ["-c", "core.hooksPath=/dev/null", "push", "--no-verify", remote, `${sha}:refs/heads/${branch}`],
+      gitEnv(dir, {
+        GIT_DIR: gitDir,
+        GIT_ALTERNATE_OBJECT_DIRECTORIES: join(workspace, ".git", "objects"),
+        GIT_SSH_COMMAND: ssh.join(" "),
+      }),
+    );
     if (r.status !== 0) {
       throw new DeployError(
         scrub(ctx, `git push of ${sha.slice(0, 12)} to ${branch} was refused or failed (exit ${r.status}): ${r.stderr.trim().slice(-300)}`),
       );
     }
   } finally {
-    for (const f of [keyFile, hostsFile]) {
-      try {
-        unlinkSync(f);
-      } catch {
-        /* already gone */
-      }
-    }
     try {
-      rmdirSync(dir);
+      unlinkSync(keyFile);
     } catch {
-      /* not empty or gone */
+      /* already gone */
     }
+    removeTree(dir);
   }
 }
 
@@ -376,6 +438,7 @@ export async function deployLive(ctx: Ctx, tag: string, ciSha: string, opts: Liv
   if (sha !== ciSha) throw new DeployError(`tag ${tag} now points to ${sha.slice(0, 12)} but CI ran on ${ciSha.slice(0, 12)}: the tag was moved. Refused.`);
   await requireOnMain(ctx, sha);
   await requireGreen(ctx, sha);
+  await requireDeployedToDev(ctx, sha);
   await fastForward(ctx, LIVE_BRANCH, sha);
   const seen = await pollVersion(ctx.deps, url, sha, opts);
   log(`LIVE serves ${seen.answer.slice(0, 12)} (${url}/version.txt)`);
@@ -435,7 +498,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const deps: Deps = {
     fetch,
     git: (args, extra) => {
-      const r = spawnSync("git", args, { env: { ...process.env, ...extra }, encoding: "utf8", timeout: 120_000, stdio: ["ignore", "pipe", "pipe"] });
+      const r = spawnSync("git", args, { env: extra, encoding: "utf8", timeout: 120_000, stdio: ["ignore", "pipe", "pipe"] });
       return { status: r.status, stderr: `${r.stderr ?? ""}${r.error ? ` ${r.error.message}` : ""}` };
     },
     now: () => Date.now(),

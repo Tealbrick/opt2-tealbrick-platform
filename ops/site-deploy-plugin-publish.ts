@@ -7,12 +7,12 @@
 // Token: a Forgejo token with write:package, in ~/.config/opt2-tealbrick/forge-packages-token (mode 600). It is read from the file, sent to
 // `docker login --password-stdin` and as an Authorization header to Forgejo; never printed, never on argv. --user is the Forgejo login name
 // that owns the token (or the environment variable FORGE_USER).
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmdirSync, statSync, unlinkSync } from "node:fs";
+import { type ChildProcess, spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { IMAGE_NAME, pluginVersion, REGISTRY_HOST } from "./site-deploy-plugin/image.ts";
+import { DIGEST_FILE, IMAGE_NAME, pluginVersion, REGISTRY_HOST } from "./site-deploy-plugin/image.ts";
 
 export const TOKEN_FILE = join(homedir(), ".config", "opt2-tealbrick", "forge-packages-token");
 export const PLATFORMS = "linux/amd64,linux/arm64";
@@ -29,9 +29,19 @@ export interface RunResult {
 export interface Deps {
   fetch: Fetch;
   /** Runs a command; `input` goes to its stdin. Tests replace it. */
-  run: (cmd: string, args: string[], input?: string) => RunResult;
+  run: (cmd: string, args: string[], input?: string) => RunResult | Promise<RunResult>;
   readToken: () => string;
   log: (line: string) => void;
+  /** Records the pushed digest for this version (the file ops/site-deploy-plugin/IMAGE-DIGEST). Tests replace it. */
+  writeDigest: (version: string, digest: string) => void;
+  /** Signal hooks (default: process). Tests replace it. */
+  signals: {
+    on: (sig: "SIGINT" | "SIGTERM", fn: () => void | Promise<void>) => void;
+    off: (sig: "SIGINT" | "SIGTERM", fn: () => void | Promise<void>) => void;
+    exit: (code: number) => void;
+  };
+  /** Stops a running child (on a signal). */
+  killChild: () => void;
 }
 
 export function redact(text: string, token: string): string {
@@ -83,20 +93,43 @@ export function planLines(version: string): string[] {
   ];
 }
 
-/** True when the version tag already exists in the registry (Forgejo packages API). Fails closed on anything but 200 or 404. */
+/**
+ * True when the version tag already exists in the registry (Forgejo packages API). FAILS CLOSED. A bare 404 on the tag is not trusted
+ * (a wrong path, owner or proxy also gives 404). So: (1) the owner's package list must answer 200 with a JSON array (a known-good endpoint:
+ * the API, the owner and the token work); (2) the list must not hold this version; (3) only then a 404 on the version path means "does not
+ * exist". Any other status, a bad body, or a full page of 50 results stops the script.
+ */
 export async function tagExists(f: Fetch, token: string, version: string): Promise<boolean> {
-  let res: Response;
+  const get = async (path: string): Promise<Response> => {
+    try {
+      return await f(`https://${REGISTRY_HOST}/api/v1/packages/${OWNER}${path}`, {
+        headers: { authorization: `token ${token}`, accept: "application/json" },
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (e) {
+      throw new Error(redact(`cannot ask the registry whether ${version} exists: ${(e as Error).message}`, token));
+    }
+  };
+  const stop = (why: string): never => {
+    throw new Error(`cannot tell whether ${IMAGE_NAME}:${version} exists (${why}); nothing was pushed`);
+  };
+  const list = await get(`?type=container&q=${PACKAGE}&limit=50`);
+  if (list.status !== 200) stop(`the package list answered HTTP ${list.status}`);
+  let entries: { name?: string; version?: string }[] = [];
   try {
-    res = await f(`https://${REGISTRY_HOST}/api/v1/packages/${OWNER}/container/${PACKAGE}/${version}`, {
-      headers: { authorization: `token ${token}`, accept: "application/json" },
-      signal: AbortSignal.timeout(30_000),
-    });
+    const body = (await list.json()) as unknown;
+    if (!Array.isArray(body)) stop("the package list is not a JSON array");
+    entries = body as { name?: string; version?: string }[];
   } catch (e) {
-    throw new Error(redact(`cannot ask the registry whether ${version} exists: ${(e as Error).message}`, token));
+    if (e instanceof Error && e.message.startsWith("cannot tell")) throw e;
+    stop("the package list is not JSON");
   }
-  if (res.status === 200) return true;
-  if (res.status === 404) return false;
-  throw new Error(`cannot tell whether ${IMAGE_NAME}:${version} exists (registry answered HTTP ${res.status}); nothing was pushed`);
+  if (entries.length >= 50) stop("the package list is full (50 entries); narrow it by hand");
+  if (entries.some((x) => x.name === PACKAGE && x.version === version)) return true;
+  const one = await get(`/container/${PACKAGE}/${version}`);
+  if (one.status === 200) return true;
+  if (one.status === 404) return false;
+  return stop(`the version path answered HTTP ${one.status}`);
 }
 
 /** The whole publish. Returns the lines to print. */
@@ -105,7 +138,8 @@ export async function publish(opts: { push: boolean; user: string | null }, deps
   if (!opts.user) throw new Error("--push needs --user <forgejo login> (or FORGE_USER)");
   const token = deps.readToken();
   const out: string[] = [];
-  const guard = (r: RunResult, what: string): RunResult => {
+  const guard = async (pending: RunResult | Promise<RunResult>, what: string): Promise<RunResult> => {
+    const r = await pending;
     if (r.status !== 0) throw new Error(redact(`${what} failed (exit ${r.status}): ${`${r.stderr}${r.stdout}`.trim().slice(-400)}`, token));
     return r;
   };
@@ -117,10 +151,25 @@ export async function publish(opts: { push: boolean; user: string | null }, deps
   const dir = mkdtempSync(join(tmpdir(), "tb-site-deploy-publish-"));
   const meta = join(dir, "metadata.json");
   let loggedIn = false;
+  const logout = async (): Promise<void> => {
+    if (!loggedIn) return;
+    loggedIn = false;
+    await deps.run("docker", ["logout", REGISTRY_HOST]);
+  };
+  // docker logout also on Ctrl+C and on a terminate signal: the login must not stay on the operator's machine.
+  const onSignal = (code: number) => async () => {
+    deps.killChild();
+    await logout();
+    deps.signals.exit(code);
+  };
+  const onInt = onSignal(130);
+  const onTerm = onSignal(143);
+  deps.signals.on("SIGINT", onInt);
+  deps.signals.on("SIGTERM", onTerm);
   try {
-    guard(deps.run("docker", ["login", REGISTRY_HOST, "--username", opts.user, "--password-stdin"], `${token}\n`), "docker login");
+    await guard(deps.run("docker", ["login", REGISTRY_HOST, "--username", opts.user, "--password-stdin"], `${token}\n`), "docker login");
     loggedIn = true;
-    guard(
+    await guard(
       deps.run("docker", [
         "buildx",
         "build",
@@ -143,9 +192,18 @@ export async function publish(opts: { push: boolean; user: string | null }, deps
       /* reported below */
     }
     if (!/^sha256:[0-9a-f]{64}$/.test(digest)) throw new Error("the build did not report an image digest; check the registry before you go on");
-    out.push(`pushed ${IMAGE_NAME}:${version}`, `digest ${digest}`, `image reference: ${IMAGE_NAME}:${version}@${digest}`);
+    deps.writeDigest(version, digest);
+    out.push(
+      `pushed ${IMAGE_NAME}:${version}`,
+      `digest ${digest}`,
+      `image reference: ${IMAGE_NAME}:${version}@${digest}`,
+      "recorded in ops/site-deploy-plugin/IMAGE-DIGEST (commit it)",
+      `next: put the image reference above in .woodpecker/site-deploy.yaml of the website repo (both steps), then run ops/website-autodeploy-setup.ts`,
+    );
   } finally {
-    if (loggedIn) deps.run("docker", ["logout", REGISTRY_HOST]);
+    deps.signals.off("SIGINT", onInt);
+    deps.signals.off("SIGTERM", onTerm);
+    await logout();
     try {
       unlinkSync(meta);
     } catch {
@@ -160,15 +218,45 @@ export async function publish(opts: { push: boolean; user: string | null }, deps
   return out;
 }
 
-function realRun(cmd: string, args: string[], input?: string): RunResult {
-  const r = spawnSync(cmd, args, { input, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], timeout: 30 * 60 * 1000 });
-  return { status: r.status, stdout: r.stdout ?? "", stderr: `${r.stderr ?? ""}${r.error ? ` ${r.error.message}` : ""}` };
+let child: ChildProcess | null = null;
+function realRun(cmd: string, args: string[], input?: string): Promise<RunResult> {
+  return new Promise((resolvePromise) => {
+    const c = spawn(cmd, args, { stdio: ["pipe", "pipe", "pipe"] });
+    child = c;
+    let stdout = "";
+    let stderr = "";
+    c.stdout.on("data", (d: Buffer) => {
+      stdout += d.toString();
+    });
+    c.stderr.on("data", (d: Buffer) => {
+      stderr += d.toString();
+    });
+    c.on("error", (e) => resolvePromise({ status: null, stdout, stderr: `${stderr} ${e.message}` }));
+    c.on("close", (code) => {
+      child = null;
+      resolvePromise({ status: code, stdout, stderr });
+    });
+    c.stdin.end(input ?? "");
+  });
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const opts = parseArgs(process.argv.slice(2));
-    for (const l of await publish(opts, { fetch, run: realRun, readToken: () => readTokenFile(), log: console.log })) console.log(l);
+    const deps: Deps = {
+      fetch,
+      run: realRun,
+      readToken: () => readTokenFile(),
+      log: console.log,
+      writeDigest: (version, digest) => writeFileSync(DIGEST_FILE, `${version} ${digest}\n`),
+      signals: {
+        on: (sig, fn) => process.on(sig, fn),
+        off: (sig, fn) => process.off(sig, fn),
+        exit: (code) => process.exit(code),
+      },
+      killChild: () => child?.kill("SIGTERM"),
+    };
+    for (const l of await publish(opts, deps)) console.log(l);
   } catch (e) {
     console.error(`site-deploy-plugin-publish: FAIL: ${redact((e as Error).message, "")}`);
     process.exit(1);

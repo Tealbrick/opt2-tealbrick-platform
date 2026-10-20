@@ -1,5 +1,8 @@
 // C293a: Martin stores the website deploy secrets and the plugin-image registry credential in Woodpecker. Agents never run the real mode and never see the values.
 //   node ops/website-autodeploy-setup.ts --dry-run   prints what this script would do (no prompt, no network call)
+//   --image-filter <value>   the secret image filter. Default: the exact digest-pinned image name:tag@sha256:<digest> recorded by the publish script
+//                            (ops/site-deploy-plugin/IMAGE-DIGEST). Fallback if Woodpecker does not match digests: --image-filter name:tag
+//                            (then a writer of the registry could replace the tag: residual = registry write, ops only).
 //   node ops/website-autodeploy-setup.ts             asks for the values (hidden input), stores them as Woodpecker repo secrets of
 //                                                    Tealbrick/opt2-tealbrick-website (events push and tag only, image filter = exactly the
 //                                                    plugin image forge.polygonface.com/polygonface/tb-site-deploy:<VERSION>) and sets the
@@ -17,7 +20,7 @@ import { resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { askHidden } from "./prod-secrets.ts";
-import { pluginImage, REGISTRY_HOST } from "./site-deploy-plugin/image.ts";
+import { checkFilter, pinnedImage, pluginImage, REGISTRY_HOST } from "./site-deploy-plugin/image.ts";
 import { loadConfig, redact as redactWp } from "./wp-failed.ts";
 
 export const REPO = "Tealbrick/opt2-tealbrick-website";
@@ -79,13 +82,24 @@ export function redact(text: string, values: readonly string[]): string {
   return redactWp(text, values);
 }
 
-export function planLines(): string[] {
-  const image = pluginImage();
+/** The secret image filter: the --image-filter value, else the recorded digest-pinned image. Throws while the image is not recorded. */
+export function imageFilter(arg: string | null, recorded: string | null = pinnedImage()): string {
+  const value = arg ?? recorded;
+  if (!value)
+    throw new Error(
+      "the plugin image is not recorded yet (ops/site-deploy-plugin/IMAGE-DIGEST is still the placeholder): publish it first, or pass --image-filter <name:tag>",
+    );
+  const why = checkFilter(value);
+  if (why) throw new Error(why);
+  return value;
+}
+
+export function planLines(image: string = pinnedImage() ?? `${pluginImage()}@sha256:<digest, after the publish>`): string[] {
   return [
     `repo: ${REPO} (Woodpecker repo secrets and registry credential, this repo only)`,
     `secret names: ${SECRET_NAMES.join(", ")}`,
     `events: ${EVENTS.join(", ")} (never pull_request, never manual)`,
-    `image filter: exactly ${image} (only the deploy plugin can read the secrets)`,
+    `image filter: exactly ${image} (only the deploy plugin image can read the secrets)`,
     `registry credential: ${REGISTRY_HOST} (agents pull the plugin image with it)`,
     `${KEY_SECRET}: you paste the PRIVATE key of a write deploy key (ed25519, no passphrase)`,
     `${TOKEN_SECRET}: you paste a GitHub fine-grained token (only repo opt2-tealbrick-website; Contents read and write; expiry 1 year; release record only)`,
@@ -106,13 +120,23 @@ export interface SetupValues {
   forgeToken: string;
 }
 
-export function parseArgs(argv: readonly string[]): { dryRun: boolean } {
-  for (const a of argv) if (a !== "--dry-run") throw new Error(`unknown option ${a}`);
-  return { dryRun: argv.includes("--dry-run") };
+export function parseArgs(argv: readonly string[]): { dryRun: boolean; imageFilter: string | null } {
+  let dryRun = false;
+  let filter: string | null = null;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i] as string;
+    if (a === "--dry-run") dryRun = true;
+    else if (a === "--image-filter") {
+      const v = argv[++i];
+      if (!v || v.startsWith("--")) throw new Error("--image-filter needs a value");
+      filter = v;
+    } else throw new Error(`unknown option ${a}`);
+  }
+  return { dryRun, imageFilter: filter };
 }
 
 /** Stores the registry credential and the two secrets and verifies them. Returns the lines to print. Every Woodpecker error is redacted before it is thrown. */
-export async function storeSecrets(wp: WpConfig, values: SetupValues, f: Fetch = fetch, image: string = pluginImage()): Promise<string[]> {
+export async function storeSecrets(wp: WpConfig, values: SetupValues, image: string, f: Fetch = fetch): Promise<string[]> {
   requireHttps(wp.url);
   const secrets = [values[TOKEN_SECRET], values[KEY_SECRET], values.forgeToken, wp.token, ...values[KEY_SECRET].split(/\r?\n/)];
   const call = async <T>(method: string, path: string, body?: unknown): Promise<{ status: number; json: T | null }> => {
@@ -234,11 +258,12 @@ async function askHiddenKey(prompt: string): Promise<string> {
 }
 
 async function main(): Promise<void> {
-  const { dryRun } = parseArgs(process.argv.slice(2));
+  const { dryRun, imageFilter: filterArg } = parseArgs(process.argv.slice(2));
   if (dryRun) {
-    for (const l of planLines()) console.log(l);
+    for (const l of planLines(filterArg ?? undefined)) console.log(l);
     return;
   }
+  const filter = imageFilter(filterArg);
   if (!process.stdin.isTTY) throw new Error("run this in a terminal (hidden input needs a TTY); values are never read from a pipe");
   const wp = loadConfig();
   requireHttps(wp.url);
@@ -278,7 +303,7 @@ async function main(): Promise<void> {
     if (attempt >= 3) throw new Error("three refused attempts; nothing was stored");
   }
   try {
-    for (const l of await storeSecrets(wp, values)) console.log(l);
+    for (const l of await storeSecrets(wp, values, filter)) console.log(l);
   } finally {
     values[KEY_SECRET] = "";
     values[TOKEN_SECRET] = "";

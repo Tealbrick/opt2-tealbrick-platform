@@ -12,7 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { PRIVATE_REPOS } from "../ci/tb-ci.ts";
-import { pluginImage, REGISTRY_HOST } from "./site-deploy-plugin/image.ts";
+import { pinnedImage, pluginImage, REGISTRY_HOST } from "./site-deploy-plugin/image.ts";
 
 /** C206: the opt2 repos move to the Tealbrick org in batches; during the move some still live under the user account. Each
  *  repo's CURRENT owner is read from GitHub (first match wins), so one run works before, during and after the move. */
@@ -167,6 +167,8 @@ interface Keep {
   events: string[];
   /** image filter the secret must have (a plugin-only secret); default none */
   images?: string[];
+  /** a second image filter that is also accepted (the documented name:tag fallback when Woodpecker does not match digests) */
+  imagesAlso?: string[];
 }
 // C232 (template ci-v9.11): the bridge repo releases its image on Woodpecker. tb_ghcr_token (classic PAT, write:packages only, of the
 // machine user) is read ONLY by the release-image-push step; tb_release_token (publish step) is the same as in the cli repo.
@@ -177,8 +179,8 @@ const KEEP: Keep[] = [
   // C293a: the website self-service deploy. site_deploy_key (the WRITE deploy key of the website repo; moves site-dev/site-live over SSH) and
   // site_deploy_token (GitHub fine-grained token, this one repo, Contents read and write; release record only) are
   // read ONLY by .woodpecker/site-deploy.yaml of opt2-tealbrick-website. Martin stores them with ops/website-autodeploy-setup.ts.
-  { repo: "opt2-tealbrick-website", name: "site_deploy_token", events: ["push", "tag"], images: [pluginImage()] },
-  { repo: "opt2-tealbrick-website", name: "site_deploy_key", events: ["push", "tag"], images: [pluginImage()] },
+  { repo: "opt2-tealbrick-website", name: "site_deploy_token", events: ["push", "tag"], images: [pinnedImage() ?? pluginImage()], imagesAlso: [pluginImage()] },
+  { repo: "opt2-tealbrick-website", name: "site_deploy_key", events: ["push", "tag"], images: [pinnedImage() ?? pluginImage()], imagesAlso: [pluginImage()] },
 ];
 /** C293a: registry credentials made by hand (ops/website-autodeploy-setup.ts). The website repo's Woodpecker agents pull the deploy plugin
  *  image from the Forgejo registry with it. This script never deletes, writes or reads a registry credential; it only reports it. */
@@ -227,7 +229,10 @@ for (const repo of TARGETS) {
     const events = [...(sec.events ?? [])].sort();
     const wantImages = [...(k.images ?? [])].sort();
     const haveImages = [...(sec.images ?? [])].sort();
-    const ok = events.join(",") === [...k.events].sort().join(",") && haveImages.join(",") === wantImages.join(",");
+    const alsoImages = [...(k.imagesAlso ?? [])].sort();
+    const ok =
+      events.join(",") === [...k.events].sort().join(",") &&
+      (haveImages.join(",") === wantImages.join(",") || (alsoImages.length > 0 && haveImages.join(",") === alsoImages.join(",")));
     console.log(
       `${repo} secret ${k.name}: kept (hand-made, C222) [${events.join(",")}]${ok ? "" : ` WARNING: want events [${k.events.join(",")}] and ${wantImages.length ? `the image filter [${wantImages.join(",")}]` : "no image filter"}`}`,
     );

@@ -1,6 +1,9 @@
 // C293: the deploy script, with a mocked fetch (no network, no real token). Fake clock: polling takes no real time.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import {
   CI_CONTEXT,
@@ -9,10 +12,12 @@ import {
   type Deps,
   fastForward,
   GITHUB_HOST_KEY,
+  gitEnv,
   LIVE_URL,
   parseInputs,
   pluginVersion,
   pollVersion,
+  pushBranch,
   ROLLBACK_HINT,
   redact,
   releaseBody,
@@ -48,6 +53,7 @@ interface World {
   statuses: Record<string, { context: string; state: string }[] | (() => { context: string; state: string }[])>;
   /** what the git push does: 'ok' moves the branch, 'reject' fails like a non-fast-forward, 'leak' fails and echoes the key */
   push: "ok" | "reject" | "leak";
+  gitInits: { args: string[]; env: Record<string, string> }[];
   gitCalls: { args: string[]; env: Record<string, string>; keyFile: string; keyMode: number; keyText: string; hostsText: string }[];
 }
 
@@ -63,6 +69,7 @@ function world(over: Partial<World> = {}): World {
     releases: [],
     calls: [],
     push: "ok",
+    gitInits: [],
     gitCalls: [],
     statuses: {},
     ...over,
@@ -81,6 +88,9 @@ function relation(w: World, base: string, head: string): string {
   if (ib >= 0 && ih >= 0) return ih > ib ? "ahead" : "behind";
   return "diverged";
 }
+
+/** A world where DEV already has B (the tip of site-dev), as LIVE requires. */
+const liveWorld = (over: Partial<World> = {}): World => world({ heads: { "site-dev": B, "site-live": A }, ...over });
 
 function fakeFetch(w: World): typeof fetch {
   const counts = { dev: 0, live: 0 };
@@ -153,6 +163,10 @@ function setup(w: World) {
   const deps: Deps = {
     fetch: fakeFetch(w),
     git: (args, env) => {
+      if (args[0] === "init") {
+        w.gitInits.push({ args, env });
+        return { status: 0, stderr: "" };
+      }
       const keyFile = /-i (\S+)/.exec(env.GIT_SSH_COMMAND ?? "")?.[1] ?? "";
       const hosts = /UserKnownHostsFile=(\S+)/.exec(env.GIT_SSH_COMMAND ?? "")?.[1] ?? "";
       w.gitCalls.push({
@@ -163,7 +177,7 @@ function setup(w: World) {
         keyText: existsSync(keyFile) ? readFileSync(keyFile, "utf8") : "",
         hostsText: existsSync(hosts) ? readFileSync(hosts, "utf8") : "",
       });
-      const m = /^([0-9a-f]{40}):refs\/heads\/(site-dev|site-live)$/.exec(args[4] ?? "");
+      const m = /^([0-9a-f]{40}):refs\/heads\/(site-dev|site-live)$/.exec(args[5] ?? "");
       if (args[2] !== "push" || !m) return { status: 2, stderr: "unexpected git call" };
       if (w.push === "reject") return { status: 1, stderr: " ! [rejected] (non-fast-forward)" };
       if (w.push === "leak") return { status: 1, stderr: `error: bad key ${KEY_BODY} ${KEY} token ${TOKEN}` };
@@ -220,7 +234,7 @@ test("dev: fast-forwards site-dev with force:false, sees the commit, passes the 
   assert.equal(await run(["dev", B], env, deps), 0);
   assert.equal(w.heads["site-dev"], B);
   assert.equal(w.gitCalls.length, 1);
-  assert.deepEqual(w.gitCalls[0]?.args, ["-c", "safe.directory=*", "push", SSH_REMOTE, `${B}:refs/heads/site-dev`]);
+  assert.deepEqual(w.gitCalls[0]?.args, ["-c", "core.hooksPath=/dev/null", "push", "--no-verify", SSH_REMOTE, `${B}:refs/heads/site-dev`]);
   assert.ok(!w.calls.some((c) => c.method === "PATCH"), "the API never moves a branch");
   assert.equal(w.heads["site-live"], A, "dev never touches site-live");
   assert.ok(lines.some((l) => l.includes("DEV smoke /.well-known/security.txt: ok")));
@@ -294,7 +308,7 @@ test("dev: a failed smoke fails the run", T, async () => {
 
 test("live: refuses anything but site-vX.Y.Z before any call", T, async () => {
   for (const tag of ["v1.0.0", "site-v1.0", "site-v1.0.0-rc1", "site-v1.0.0/x", "site-dev", "main", "site-v01.0.0x"]) {
-    const w = world();
+    const w = liveWorld();
     const { deps } = setup(w);
     assert.equal(await run(["live", tag, B], env, deps), 1, tag);
     assert.equal(w.calls.length, 0, `${tag}: no call was made`);
@@ -302,14 +316,14 @@ test("live: refuses anything but site-vX.Y.Z before any call", T, async () => {
 });
 
 test("live: tag on main -> site-live moves, LIVE is polled and smoked, the release records it", T, async () => {
-  const w = world({ liveVersion: [A, B] });
+  const w = liveWorld({ liveVersion: [A, B] });
   const { deps, lines } = setup(w);
   assert.equal(await run(["live", "site-v1.0.0", B], env, deps), 0);
   assert.equal(w.heads["site-live"], B);
-  assert.equal(w.heads["site-dev"], A, "live never touches site-dev");
+  assert.equal(w.heads["site-dev"], B, "live never touches site-dev");
   assert.deepEqual(
     w.gitCalls.map((g) => g.args),
-    [["-c", "safe.directory=*", "push", SSH_REMOTE, `${B}:refs/heads/site-live`]],
+    [["-c", "core.hooksPath=/dev/null", "push", "--no-verify", SSH_REMOTE, `${B}:refs/heads/site-live`]],
   );
   assert.equal(w.releases.length, 1);
   const body = w.releases[0]?.body ?? "";
@@ -324,14 +338,14 @@ test("live: tag on main -> site-live moves, LIVE is polled and smoked, the relea
 });
 
 test("live: an annotated tag is followed to its commit", T, async () => {
-  const w = world({ tags: { "site-v1.0.0": { type: "tag", sha: "d".repeat(40), inner: B } } });
+  const w = liveWorld({ tags: { "site-v1.0.0": { type: "tag", sha: "d".repeat(40), inner: B } } });
   const { deps } = setup(w);
   assert.equal(await run(["live", "site-v1.0.0", B], env, deps), 0);
   assert.equal(w.heads["site-live"], B);
 });
 
 test("live: a tag whose commit is not on main is refused; nothing moves, no release", T, async () => {
-  const w = world({ tags: { "site-v1.0.0": { type: "commit", sha: C } } });
+  const w = liveWorld({ tags: { "site-v1.0.0": { type: "commit", sha: C } } });
   const { deps, lines } = setup(w);
   assert.equal(await run(["live", "site-v1.0.0", C], env, deps), 1);
   assert.equal(w.gitCalls.length, 0);
@@ -342,14 +356,14 @@ test("live: a tag whose commit is not on main is refused; nothing moves, no rele
 });
 
 test("live: a tag that does not exist is refused", T, async () => {
-  const w = world({ tags: {} });
+  const w = liveWorld({ tags: {} });
   const { deps, lines } = setup(w);
   assert.equal(await run(["live", "site-v9.9.9", B], env, deps), 1);
   assert.ok(lines.some((l) => l.includes("does not exist on GitHub")));
 });
 
 test("live: an old tag (site-live is already ahead) is refused: rollback is a revert + a new tag", T, async () => {
-  const w = world({ heads: { "site-dev": B, "site-live": B }, tags: { "site-v0.9.0": { type: "commit", sha: A } } });
+  const w = liveWorld({ heads: { "site-dev": B, "site-live": B }, tags: { "site-v0.9.0": { type: "commit", sha: A } } });
   const { deps, lines } = setup(w);
   assert.equal(await run(["live", "site-v0.9.0", A], env, deps), 1);
   assert.equal(w.heads["site-live"], B);
@@ -358,14 +372,14 @@ test("live: an old tag (site-live is already ahead) is refused: rollback is a re
 });
 
 test("live: a failed LIVE smoke fails and writes no release", T, async () => {
-  const w = world({ securityTxt: "nothing useful\n" });
+  const w = liveWorld({ securityTxt: "nothing useful\n" });
   const { deps } = setup(w);
   assert.equal(await run(["live", "site-v1.0.0", B], env, deps), 1);
   assert.equal(w.releases.length, 0);
 });
 
 test("live: a re-run updates the existing release record instead of creating a second one", T, async () => {
-  const w = world({ releases: [{ id: 7, tag: "site-v1.0.0", body: "old" }], heads: { "site-dev": A, "site-live": B } });
+  const w = liveWorld({ releases: [{ id: 7, tag: "site-v1.0.0", body: "old" }], heads: { "site-dev": B, "site-live": B } });
   const { deps } = setup(w);
   assert.equal(await run(["live", "site-v1.0.0", B], env, deps), 0);
   assert.equal(w.releases.length, 1);
@@ -477,7 +491,7 @@ test("push: plain git push of <sha>:refs/heads/<branch> with the key in a 0600 f
   const { deps } = setup(w);
   assert.equal(await run(["dev", B], env, deps), 0);
   const g = w.gitCalls[0];
-  assert.deepEqual(g?.args, ["-c", "safe.directory=*", "push", SSH_REMOTE, `${B}:refs/heads/site-dev`]);
+  assert.deepEqual(g?.args, ["-c", "core.hooksPath=/dev/null", "push", "--no-verify", SSH_REMOTE, `${B}:refs/heads/site-dev`]);
   assert.ok(!(g?.args ?? []).some((a) => /^--?f(orce)?|force|\+/.test(a)), "no --force, no +refspec");
   assert.equal(g?.keyMode, 0o600);
   assert.equal(g?.keyText, `${KEY}\n`);
@@ -492,7 +506,7 @@ test("push: plain git push of <sha>:refs/heads/<branch> with the key in a 0600 f
 });
 
 test("push: a non-fast-forward rejection fails the run, no polling, no release", T, async () => {
-  const w = world({ push: "reject" });
+  const w = liveWorld({ push: "reject" });
   const { deps, lines } = setup(w);
   assert.equal(await run(["live", "site-v1.0.0", B], env, deps), 1);
   assert.ok(lines.some((l) => l.includes("refused or failed") && l.includes("non-fast-forward")));
@@ -528,7 +542,7 @@ test("redact: removes the key block and each key line", T, () => {
 // ---- S2-a: a moved tag ----
 
 test("S2-a live: the tag now points to another main commit than the one CI ran on -> refused, nothing pushed", T, async () => {
-  const w = world({ tags: { "site-v1.0.0": { type: "commit", sha: B } } });
+  const w = liveWorld({ tags: { "site-v1.0.0": { type: "commit", sha: B } } });
   const { deps, lines } = setup(w);
   assert.equal(await run(["live", "site-v1.0.0", A], env, deps), 1);
   assert.ok(lines.some((l) => l.includes("the tag was moved")));
@@ -538,7 +552,7 @@ test("S2-a live: the tag now points to another main commit than the one CI ran o
 });
 
 test("S2-a live: the commit CI ran on must be a full SHA", T, async () => {
-  const w = world();
+  const w = liveWorld();
   const { deps } = setup(w);
   assert.equal(await run(["live", "site-v1.0.0", "main"], env, deps), 1);
   assert.equal(w.calls.length, 0);
@@ -617,7 +631,7 @@ test("trust: repo, branches and URLs are constants: no setting (PLUGIN_REPO, PLU
   };
   assert.equal(await run(["dev", B], evil, deps), 0);
   for (const c of w.calls) assert.ok(c.url.startsWith("https://api.github.com/repos/Tealbrick/opt2-tealbrick-website/") || c.url.startsWith(DEV_URL), c.url);
-  assert.deepEqual(w.gitCalls[0]?.args, ["-c", "safe.directory=*", "push", SSH_REMOTE, `${B}:refs/heads/site-dev`]);
+  assert.deepEqual(w.gitCalls[0]?.args, ["-c", "core.hooksPath=/dev/null", "push", "--no-verify", SSH_REMOTE, `${B}:refs/heads/site-dev`]);
   assert.equal(SSH_REMOTE, "git@github.com:Tealbrick/opt2-tealbrick-website.git");
 });
 
@@ -635,7 +649,7 @@ test("trust: only site-dev and site-live can be moved (a branch name from elsewh
 });
 
 test("trust: live reads the tag from GitHub; a tag that does not point at the candidate is refused", T, async () => {
-  const w = world({ tags: { "site-v1.0.0": { type: "commit", sha: A } } });
+  const w = liveWorld({ tags: { "site-v1.0.0": { type: "commit", sha: A } } });
   const { deps, lines } = setup(w);
   assert.equal(await run(["live", "site-v1.0.0", B], env, deps), 1);
   assert.ok(w.calls.some((c) => c.url.endsWith("/git/ref/tags/site-v1.0.0")));
@@ -644,10 +658,10 @@ test("trust: live reads the tag from GitHub; a tag that does not point at the ca
 });
 
 test("trust: an annotated tag is peeled to its commit before the comparison", T, async () => {
-  const w = world({ tags: { "site-v1.0.0": { type: "tag", sha: "e".repeat(40), inner: A } } });
+  const w = liveWorld({ tags: { "site-v1.0.0": { type: "tag", sha: "e".repeat(40), inner: A } } });
   const { deps } = setup(w);
   assert.equal(await run(["live", "site-v1.0.0", B], env, deps), 1, "peeled to A, candidate is B: refused");
-  const w2 = world({ tags: { "site-v1.0.0": { type: "tag", sha: "e".repeat(40), inner: B } } });
+  const w2 = liveWorld({ tags: { "site-v1.0.0": { type: "tag", sha: "e".repeat(40), inner: B } } });
   const { deps: d2 } = setup(w2);
   assert.equal(await run(["live", "site-v1.0.0", B], env, d2), 0);
 });
@@ -678,7 +692,7 @@ test('rollout test: dev mode on a test-branch commit (not on main) refuses with 
 });
 
 test("rollout test: live mode without a tag (a branch pipeline) is refused before any push", T, async () => {
-  const w = world();
+  const w = liveWorld();
   const { deps, lines } = setup(w);
   assert.equal(await runPlugin({ ...env, PLUGIN_MODE: "live", CI_COMMIT_SHA: B }, deps), 1);
   assert.ok(lines.some((l) => l.includes("is not a website tag")));
@@ -700,4 +714,183 @@ test("the plugin file imports nothing from the repo (it is copied alone into the
   const imports = [...src.matchAll(/^import .* from ["']([^"']+)["'];$/gm)];
   assert.ok(imports.length >= 4, "the imports were found");
   for (const m of imports) assert.match(m[1] as string, /^node:/, `import ${m[1]}`);
+});
+
+// ---- Round 4: LIVE only takes a commit DEV already has ----
+
+const DEV_MSG = "this commit has not been deployed to DEV yet: merge to main, wait for DEV, then tag";
+
+test("DEV gate: sha == site-dev -> LIVE deploys", T, async () => {
+  const w = liveWorld({ heads: { "site-dev": B, "site-live": A } });
+  const { deps } = setup(w);
+  assert.equal(await run(["live", "site-v1.0.0", B], env, deps), 0);
+  assert.ok(
+    w.calls.some((c) => c.url.endsWith("/git/ref/heads/site-dev")),
+    "site-dev is read fresh",
+  );
+});
+
+test("DEV gate: sha older than site-dev (DEV has moved on) -> LIVE deploys", T, async () => {
+  const D = "d".repeat(40);
+  const w = liveWorld({ mainLine: [A, B, D], main: D, heads: { "site-dev": D, "site-live": A } });
+  const { deps } = setup(w);
+  assert.equal(await run(["live", "site-v1.0.0", B], env, deps), 0);
+  assert.equal(w.heads["site-live"], B);
+});
+
+test("DEV gate: sha newer than site-dev (on main, not on DEV yet) -> refused with the DEV message, nothing pushed, no release", T, async () => {
+  const w = liveWorld({ heads: { "site-dev": A, "site-live": A } });
+  const { deps, lines } = setup(w);
+  assert.equal(await run(["live", "site-v1.0.0", B], env, deps), 1);
+  assert.ok(lines.some((l) => l.includes(DEV_MSG)));
+  assert.equal(w.gitCalls.length, 0);
+  assert.equal(w.releases.length, 0);
+  assert.equal(w.heads["site-live"], A);
+});
+
+test("DEV gate: sha diverged from site-dev -> refused", T, async () => {
+  const w = liveWorld({ heads: { "site-dev": C, "site-live": A } });
+  const { deps, lines } = setup(w);
+  assert.equal(await run(["live", "site-v1.0.0", B], env, deps), 1);
+  assert.ok(lines.some((l) => l.includes(DEV_MSG)));
+  assert.equal(w.gitCalls.length, 0);
+});
+
+test("DEV gate: a missing site-dev branch -> refused", T, async () => {
+  const w = liveWorld({ heads: { "site-live": A } });
+  const { deps, lines } = setup(w);
+  assert.equal(await run(["live", "site-v1.0.0", B], env, deps), 1);
+  assert.ok(lines.some((l) => l.includes("site-dev does not exist")));
+  assert.equal(w.gitCalls.length, 0);
+});
+
+test("DEV gate: the dev mode does not need it (DEV is the first stop)", T, async () => {
+  const w = world();
+  const { deps } = setup(w);
+  assert.equal(await run(["dev", B], env, deps), 0);
+});
+
+// ---- Round 4 S4: git runs in a fresh repo with a minimal environment ----
+
+test("S4: git runs in a fresh bare repo in a temp folder: init first, GIT_DIR set, no hooks, --no-verify, objects read through alternates", T, async () => {
+  const w = world();
+  const { deps } = setup(w);
+  const workspace = mkdtempSync(join(tmpdir(), "ws-"));
+  await pushBranchWith(deps, workspace, "site-dev", B);
+  const init = w.gitInits[0];
+  assert.deepEqual(init?.args.slice(0, 4), ["init", "--bare", "--quiet", "--template="]);
+  const push = w.gitCalls[0];
+  assert.deepEqual(push?.args, ["-c", "core.hooksPath=/dev/null", "push", "--no-verify", SSH_REMOTE, `${B}:refs/heads/site-dev`]);
+  assert.ok(!push?.args.includes("--force") && !push?.args.some((a) => a.startsWith("+")));
+  assert.equal(push?.env.GIT_DIR, init?.args[4], "git works in the temp repo, not in the workspace");
+  assert.ok(!(push?.env.GIT_DIR ?? "").startsWith(workspace));
+  assert.equal(push?.env.GIT_ALTERNATE_OBJECT_DIRECTORIES, join(workspace, ".git", "objects"));
+  assert.match(push?.env.GIT_SSH_COMMAND ?? "", /-F \/dev\/null /);
+});
+
+/** pushBranch with the mocked git of `deps` and a workspace folder. */
+async function pushBranchWith(deps: Deps, workspace: string, branch: string, sha: string): Promise<void> {
+  pushBranch({ token: TOKEN, key: KEY, deps, workspace }, branch, sha);
+}
+
+test("S4: the git child gets a minimal environment: no PLUGIN_*, no CI_*, no secret, HOME is the temp folder", T, async () => {
+  const saved = { t: process.env.PLUGIN_TOKEN, k: process.env.PLUGIN_DEPLOY_KEY, c: process.env.CI_COMMIT_SHA };
+  process.env.PLUGIN_TOKEN = TOKEN;
+  process.env.PLUGIN_DEPLOY_KEY = KEY;
+  process.env.CI_COMMIT_SHA = B;
+  try {
+    const w = world();
+    const { deps } = setup(w);
+    assert.equal(await run(["dev", B], env, deps), 0);
+    const allowed = new Set([
+      "PATH",
+      "HOME",
+      "GIT_CONFIG_GLOBAL",
+      "GIT_CONFIG_NOSYSTEM",
+      "GIT_TERMINAL_PROMPT",
+      "GIT_DIR",
+      "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+      "GIT_SSH_COMMAND",
+    ]);
+    for (const e of [...w.gitInits.map((g) => g.env), ...w.gitCalls.map((g) => g.env)]) {
+      for (const k of Object.keys(e)) assert.ok(allowed.has(k), `unexpected variable ${k}`);
+      assert.ok(!Object.keys(e).some((k) => k.startsWith("PLUGIN_") || k.startsWith("CI_")));
+      const text = JSON.stringify(e);
+      assert.ok(!text.includes(TOKEN) && !text.includes(KEY_BODY), "no secret in the child environment");
+      assert.equal(e.GIT_CONFIG_GLOBAL, "/dev/null");
+      assert.equal(e.GIT_CONFIG_NOSYSTEM, "1");
+    }
+    const home = w.gitCalls[0]?.env.HOME ?? "";
+    assert.ok(home.includes("site-deploy-") && home !== process.env.HOME, "HOME is a temp folder");
+  } finally {
+    for (const [k, v] of [
+      ["PLUGIN_TOKEN", saved.t],
+      ["PLUGIN_DEPLOY_KEY", saved.k],
+      ["CI_COMMIT_SHA", saved.c],
+    ] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+  assert.deepEqual(Object.keys(gitEnv("/h")).sort(), ["GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GIT_TERMINAL_PROMPT", "HOME", "PATH"]);
+});
+
+test("S4 real git: a hook in the workspace is NOT run, the workspace config is not read, and the commit reaches the remote", { timeout: 60_000 }, () => {
+  const root = mkdtempSync(join(tmpdir(), "tb-s4-"));
+  const sh = (cwd: string, args: string[], env: Record<string, string> = {}) => {
+    const r = spawnSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH ?? "",
+        HOME: root,
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_AUTHOR_NAME: "t",
+        GIT_AUTHOR_EMAIL: "t@example.test",
+        GIT_COMMITTER_NAME: "t",
+        GIT_COMMITTER_EMAIL: "t@example.test",
+        ...env,
+      },
+    });
+    assert.equal(r.status, 0, `git ${args.join(" ")}: ${r.stderr}`);
+    return r.stdout.trim();
+  };
+  const remote = join(root, "remote.git");
+  sh(root, ["init", "--bare", "--quiet", remote]);
+  const ws = join(root, "ws");
+  mkdirSync(ws);
+  sh(ws, ["init", "--quiet"]);
+  writeFileSync(join(ws, "a.txt"), "one\n");
+  sh(ws, ["add", "a.txt"]);
+  sh(ws, ["commit", "--quiet", "-m", "one"]);
+  const sha = sh(ws, ["rev-parse", "HEAD"]);
+  // evil workspace: hooks of every push kind, a hooksPath config and a url rewrite that would redirect the push
+  const marker = join(root, "HOOK-RAN");
+  const hookDir = join(ws, "evil-hooks");
+  mkdirSync(hookDir);
+  for (const name of ["pre-push", "reference-transaction", "pre-commit"]) {
+    writeFileSync(join(hookDir, name), `#!/bin/sh\necho ran > "${marker}"\n`);
+    chmodSync(join(hookDir, name), 0o755);
+  }
+  for (const name of ["pre-push"]) {
+    writeFileSync(join(ws, ".git", "hooks", name), `#!/bin/sh\necho ran > "${marker}"\n`);
+    chmodSync(join(ws, ".git", "hooks", name), 0o755);
+  }
+  sh(ws, ["config", "core.hooksPath", hookDir]);
+  sh(ws, ["config", `url.file:///nowhere/.insteadOf`, `file://${remote}`]);
+  sh(ws, ["config", "core.sshCommand", `touch ${marker}`]);
+  const deps: Deps = {
+    fetch: (async () => new Response("{}")) as typeof fetch,
+    git: (args, e) => {
+      const r = spawnSync("git", args, { env: e, encoding: "utf8" });
+      return { status: r.status, stderr: r.stderr ?? "" };
+    },
+    now: () => 0,
+    sleep: async () => {},
+    log: () => {},
+  };
+  pushBranch({ token: TOKEN, key: KEY, deps }, "site-dev", sha, `file://${remote}`, ws);
+  assert.ok(!existsSync(marker), "no hook and no workspace config ran");
+  assert.equal(sh(remote, ["rev-parse", "refs/heads/site-dev"]), sha);
 });

@@ -16,15 +16,43 @@ interface Call {
   args: string[];
   input?: string;
 }
-function harness(over: { status?: number; build?: Partial<RunResult>; login?: Partial<RunResult> } = {}) {
+interface Over {
+  /** HTTP status of the version path (default 404 = free) */
+  status?: number;
+  /** HTTP status of the package list (default 200) */
+  listStatus?: number;
+  listBody?: unknown;
+  build?: Partial<RunResult>;
+  login?: Partial<RunResult>;
+}
+function harness(over: Over = {}) {
   const calls: Call[] = [];
   const fetches: { url: string; auth: string | null }[] = [];
   const logs: string[] = [];
+  const digests: string[] = [];
+  const handlers = new Map<string, () => void | Promise<void>>();
+  const exits: number[] = [];
+  let killed = 0;
   const deps: Deps = {
     log: (l) => logs.push(l),
     readToken: () => TOKEN,
+    writeDigest: (version, digest) => digests.push(`${version} ${digest}`),
+    killChild: () => {
+      killed++;
+    },
+    signals: {
+      on: (sig, fn) => handlers.set(sig, fn),
+      off: (sig, fn) => {
+        if (handlers.get(sig) === fn) handlers.delete(sig);
+      },
+      exit: (code) => {
+        exits.push(code);
+      },
+    },
     fetch: (async (url: string | URL | Request, init?: RequestInit) => {
-      fetches.push({ url: String(url), auth: (init?.headers as Record<string, string>)?.authorization ?? null });
+      const u = String(url);
+      fetches.push({ url: u, auth: (init?.headers as Record<string, string>)?.authorization ?? null });
+      if (u.includes("?type=container")) return new Response(JSON.stringify(over.listBody ?? []), { status: over.listStatus ?? 200 });
       return new Response("{}", { status: over.status ?? 404 });
     }) as typeof fetch,
     run: (cmd, args, input) => {
@@ -38,7 +66,7 @@ function harness(over: { status?: number; build?: Partial<RunResult>; login?: Pa
       return { status: 0, stdout: "", stderr: "" };
     },
   };
-  return { deps, calls, fetches, logs };
+  return { deps, calls, fetches, logs, digests, handlers, exits, killed: () => killed };
 }
 
 test("the image name and the version come from one place", T, () => {
@@ -97,7 +125,7 @@ test("--push: a free tag -> login (token on stdin only), multi-arch buildx --pus
   assert.ok(out.some((l) => l === `digest ${DIGEST}`));
   assert.ok(out.some((l) => l.endsWith(`:1.0.0@${DIGEST}`)));
   for (const c of h.calls) assert.ok(!JSON.stringify(c.args).includes(TOKEN), "the token is never on argv");
-  assert.match(h.fetches[0]?.url ?? "", /\/api\/v1\/packages\/polygonface\/container\/tb-site-deploy\/1\.0\.0$/);
+  assert.match(h.fetches[1]?.url ?? "", /\/api\/v1\/packages\/polygonface\/container\/tb-site-deploy\/1\.0\.0$/);
 });
 
 test("--push: a tag that already exists in the registry is REFUSED; no login, no build, no push", T, async () => {
@@ -163,4 +191,83 @@ test("readTokenFile: mode 600 and one token; group-readable or empty files are r
   writeFileSync(f, "two words\n");
   assert.throws(() => readTokenFile(f), /exactly one token/);
   assert.throws(() => readTokenFile(join(dir, "missing")), /no token file/);
+});
+
+test("tagExists fails CLOSED: the package list must answer 200 with a JSON array before a 404 on the tag counts as 'free'", T, async () => {
+  const free = harness({ status: 404 });
+  assert.equal(await tagExists(free.deps.fetch, TOKEN, "1.0.0"), false);
+  assert.match(free.fetches[0]?.url ?? "", /\/api\/v1\/packages\/polygonface\?type=container&q=tb-site-deploy&limit=50$/, "the list is asked first");
+  assert.match(free.fetches[1]?.url ?? "", /container\/tb-site-deploy\/1\.0\.0$/);
+  for (const listStatus of [401, 403, 404, 500]) {
+    const h = harness({ listStatus, status: 404 });
+    await assert.rejects(() => tagExists(h.deps.fetch, TOKEN, "1.0.0"), /cannot tell whether .*the package list answered HTTP/);
+    assert.equal(h.fetches.length, 1, "no version request after a bad list");
+  }
+  const notArray = harness({ listBody: { message: "hi" }, status: 404 });
+  await assert.rejects(() => tagExists(notArray.deps.fetch, TOKEN, "1.0.0"), /not a JSON array/);
+  const full = harness({ listBody: Array.from({ length: 50 }, (_, i) => ({ name: `p${i}`, version: "1" })), status: 404 });
+  await assert.rejects(() => tagExists(full.deps.fetch, TOKEN, "1.0.0"), /full/);
+  const odd = harness({ status: 502 });
+  await assert.rejects(() => tagExists(odd.deps.fetch, TOKEN, "1.0.0"), /version path answered HTTP 502/);
+});
+
+test("tagExists: the version in the list means 'exists' even if the version path says 404; 200 on the path means 'exists'", T, async () => {
+  const listed = harness({ listBody: [{ name: "tb-site-deploy", version: "1.0.0" }], status: 404 });
+  assert.equal(await tagExists(listed.deps.fetch, TOKEN, "1.0.0"), true);
+  assert.equal(listed.fetches.length, 1);
+  const other = harness({ listBody: [{ name: "tb-site-deploy", version: "0.9.0" }], status: 404 });
+  assert.equal(await tagExists(other.deps.fetch, TOKEN, "1.0.0"), false);
+  const direct = harness({ status: 200 });
+  assert.equal(await tagExists(direct.deps.fetch, TOKEN, "1.0.0"), true);
+});
+
+test("--push: records the digest for the version and tells the next step; a refused or failed run records nothing", T, async () => {
+  const h = harness();
+  const out = await publish({ push: true, user: "martin" }, h.deps);
+  assert.deepEqual(h.digests, [`1.0.0 ${DIGEST}`]);
+  assert.ok(out.some((l) => l.includes("IMAGE-DIGEST")) && out.some((l) => l.startsWith("next:")));
+  const bad = harness({ status: 200 });
+  await assert.rejects(() => publish({ push: true, user: "martin" }, bad.deps));
+  assert.deepEqual(bad.digests, []);
+  const failed = harness({ build: { status: 1 } });
+  await assert.rejects(() => publish({ push: true, user: "martin" }, failed.deps));
+  assert.deepEqual(failed.digests, []);
+});
+
+test("logout runs in the finally block on success and on failure, exactly once", T, async () => {
+  const ok = harness();
+  await publish({ push: true, user: "martin" }, ok.deps);
+  assert.equal(ok.calls.filter((c) => c.args[0] === "logout").length, 1);
+  const failed = harness({ build: { status: 1, stderr: "x" } });
+  await assert.rejects(() => publish({ push: true, user: "martin" }, failed.deps));
+  assert.equal(failed.calls.filter((c) => c.args[0] === "logout").length, 1);
+});
+
+test("SIGINT and SIGTERM: the child is stopped, docker logout runs, the process exits 130/143; the handlers are removed after the run", T, async () => {
+  for (const [sig, code] of [
+    ["SIGINT", 130],
+    ["SIGTERM", 143],
+  ] as const) {
+    const h = harness();
+    // stop the run in the middle of the build: the signal arrives while docker buildx is running
+    const run = h.deps.run;
+    let pending: Promise<void> | undefined;
+    h.deps.run = (cmd, args, input) => {
+      if (args[0] === "buildx") pending = Promise.resolve(h.handlers.get(sig)?.());
+      return run(cmd, args, input);
+    };
+    await publish({ push: true, user: "martin" }, h.deps);
+    await pending;
+    assert.equal(h.killed(), 1, `${sig}: the running build is stopped`);
+    assert.equal(h.calls.filter((c) => c.args[0] === "logout").length, 1, `${sig}: exactly one logout (the handler's; the finally does not repeat it)`);
+    assert.deepEqual(h.exits, [code]);
+    assert.equal(h.handlers.size, 0, "the handlers are removed at the end");
+  }
+});
+
+test("before the login no handler is needed and no logout happens when the registry check stops the run", T, async () => {
+  const h = harness({ status: 200 });
+  await assert.rejects(() => publish({ push: true, user: "martin" }, h.deps));
+  assert.equal(h.calls.length, 0);
+  assert.equal(h.handlers.size, 0);
 });

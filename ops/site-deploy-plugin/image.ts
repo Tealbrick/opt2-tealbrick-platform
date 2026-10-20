@@ -18,3 +18,26 @@ export function pluginVersion(read: () => string = () => readFileSync(VERSION_FI
 export function pluginImage(version: string = pluginVersion()): string {
   return `${IMAGE_NAME}:${version}`;
 }
+
+export const DIGEST_FILE = new URL("./IMAGE-DIGEST", import.meta.url);
+const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
+
+/** The recorded digest of the published image: `<VERSION> sha256:<64 hex>` in IMAGE-DIGEST (written by the publish script). null while it is the
+ *  placeholder or belongs to another version. */
+export function recordedDigest(version: string = pluginVersion(), read: () => string = () => readFileSync(DIGEST_FILE, "utf8")): string | null {
+  const [v, digest] = read().trim().split(/\s+/);
+  return v === version && digest !== undefined && DIGEST_RE.test(digest) ? digest : null;
+}
+
+/** The digest-pinned reference: name:tag@sha256:<digest> (what the website workflow runs). null while the image is not recorded. */
+export function pinnedImage(version: string = pluginVersion(), digest: string | null = recordedDigest(version)): string | null {
+  return digest ? `${pluginImage(version)}@${digest}` : null;
+}
+
+/** A valid secret image filter value: name:tag or name:tag@sha256:<digest>, of THIS image only. */
+export function checkFilter(value: string): string | null {
+  const m = /^forge\.polygonface\.com\/polygonface\/tb-site-deploy:(\d+\.\d+\.\d+)(@sha256:[0-9a-f]{64})?$/.exec(value);
+  if (!m) return "the image filter must be forge.polygonface.com/polygonface/tb-site-deploy:<X.Y.Z> or ...:<X.Y.Z>@sha256:<64 hex>";
+  if (m[1] !== pluginVersion()) return `the image filter has the version ${m[1]} but ops/site-deploy-plugin/VERSION is ${pluginVersion()}`;
+  return null;
+}
