@@ -218,5 +218,25 @@
         "bridge": "0.1.31"
       }
     }
+  },
+  {
+    "product": "connect",
+    "version": "0.5.12",
+    "devReleaseId": "rel_01M59YM7V8PF5EMP0Y4PA0EV0F",
+    "promotedAt": "2026-10-20T01:10:54Z",
+    "by": "connect-lead",
+    "decision": "C284",
+    "expedited": true,
+    "incident": "INC-20261019-03",
+    "evidence": {
+      "soakStart": "2026-10-20T00:53:11Z",
+      "soakEnd": "2026-10-20T01:09:47Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — Connect 0.5.12 roll on qa1, 2026-10-20 (QA lead): PASS rows 1–8, 0 S1/S2/S3; G7 permuted-key replay ran once; Refresh-tools addendum shown",
+      "platform": {
+        "core": "d9eb0675ee1bdbd5909b1d0f448dfcc9f2a7f971",
+        "bridge": "0.1.31"
+      }
+    }
   }
 ]
