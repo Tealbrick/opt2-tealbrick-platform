@@ -4,12 +4,15 @@
 //   node ops/prod-secrets.ts [--environment live]      generates TB_KEK, asks for the provider secrets (hidden input) and
 //                                                      sets them with `railway variable set <NAME> --stdin --skip-deploys`
 //   options: --only NAME[,NAME…]  set only these names (e.g. to replace one wrong value; TB_KEK is never replaced)
+//            --skip-stripe-preflight  emergency only: do not check the permissions of an rk_ Stripe key before storing
+// Stripe preflight: an rk_ key is first tried with three read-only calls (price, customers, checkout sessions) against
+// https://api.stripe.com. If one fails, NOTHING is stored. The key is never printed (see stripePreflight).
 // Rules: values are never printed, never on argv, never in a file. Nothing is deployed (--skip-deploys); the cutover lead
 // deploys pinned SHAs afterwards (C141). The dev environment `production` is refused. An existing TB_KEK is never replaced:
 // a new KEK makes every sealed value unreadable (KEK rotation = ops/KEYS.md, not this script).
 import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -133,6 +136,7 @@ export interface Options {
   environment: string;
   dryRun: boolean;
   only: string[] | null;
+  skipStripePreflight: boolean;
 }
 
 export function parseArgs(argv: readonly string[]): Options {
@@ -143,7 +147,7 @@ export function parseArgs(argv: readonly string[]): Options {
     if (!v || v.startsWith("--")) throw new Error(`${flag} needs a value`);
     return v;
   };
-  const known = new Set(["--dry-run", "--environment", "--only"]);
+  const known = new Set(["--dry-run", "--environment", "--only", "--skip-stripe-preflight"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] as string;
     if (!a.startsWith("--")) continue;
@@ -163,7 +167,7 @@ export function parseArgs(argv: readonly string[]): Options {
     const names = new Set(SECRETS.map((s) => s.name));
     for (const n of only) if (!names.has(n)) throw new Error(`--only: ${n} is not a secret this script sets`);
   }
-  return { environment, dryRun: argv.includes("--dry-run"), only };
+  return { environment, dryRun: argv.includes("--dry-run"), only, skipStripePreflight: argv.includes("--skip-stripe-preflight") };
 }
 
 /** The specs to handle for these options; TB_KEK and TB_KEK_ID always travel together. */
@@ -207,6 +211,145 @@ export function stripeModeNotes(collected: readonly { spec: { name: string }; va
       notes.push("Also set STRIPE_WEBHOOK_SECRET from the LIVE webhook endpoint (--only STRIPE_WEBHOOK_SECRET): a test-mode secret cannot verify live events.");
   } else notes.push("STRIPE_SECRET_KEY is a TEST key. Core runs in Stripe test mode; the cutover lead removes TB_STRIPE_ALLOW_LIVE.");
   return notes;
+}
+
+export const STRIPE_API = "https://api.stripe.com";
+export const STRIPE_PREFLIGHT_TIMEOUT_MS = 8000;
+export type StripeMode = "live" | "test";
+
+/** The mode of a restricted Stripe key (rk_live_ / rk_test_); null for any other key (sk_test_ is a full test key: no preflight). */
+export function restrictedKeyMode(key: string): StripeMode | null {
+  if (key.startsWith("rk_live_")) return "live";
+  if (key.startsWith("rk_test_")) return "test";
+  return null;
+}
+
+/** First Stripe price id of the mode in registry/offers.json (the first offer that has one), else null. */
+export function firstPriceId(offers: unknown, mode: StripeMode): string | null {
+  if (!Array.isArray(offers)) return null;
+  for (const o of offers) {
+    const id = (o as { stripePrice?: Record<string, unknown> } | null)?.stripePrice?.[mode];
+    if (typeof id === "string" && id !== "") return id;
+  }
+  return null;
+}
+
+/** Reads registry/offers.json next to this repo's ops folder; null when it cannot be read. */
+export function readOffers(): unknown {
+  try {
+    return JSON.parse(readFileSync(new URL("../registry/offers.json", import.meta.url), "utf8")) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+export interface PreflightResult {
+  ok: boolean;
+  /** every line is safe to print: no key text, no response body */
+  lines: string[];
+}
+
+/** Error type / code of a Stripe error body, only when they look like plain identifiers. Nothing else of the body is kept. */
+async function stripeErrorInfo(res: Response): Promise<{ type: string; code: string }> {
+  try {
+    const body = (await res.json()) as { error?: { type?: unknown; code?: unknown } };
+    const pick = (v: unknown): string => (typeof v === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(v) ? v : "");
+    return { type: pick(body?.error?.type), code: pick(body?.error?.code) };
+  } catch {
+    return { type: "", code: "" };
+  }
+}
+
+/**
+ * C231 follow-up: three read-only calls with the received rk_ key, before anything is stored.
+ * Only https://api.stripe.com is called; the key goes only into the Authorization header; every line passes redact().
+ * Not an rk_ key (sk_test_): no call, ok.
+ */
+export async function stripePreflight(
+  key: string,
+  priceId: string | null,
+  doFetch: typeof fetch = fetch,
+  timeoutMs: number = STRIPE_PREFLIGHT_TIMEOUT_MS,
+): Promise<PreflightResult> {
+  const mode = restrictedKeyMode(key);
+  if (!mode) return { ok: true, lines: [] };
+  const lines: string[] = [];
+  let ok = true;
+  const safe = (t: string): string => redact(t, [key]);
+  const checks: { resource: string; path: string; isPrice: boolean }[] = [];
+  if (priceId && /^price_[A-Za-z0-9]+$/.test(priceId)) checks.push({ resource: "prices", path: `/v1/prices/${priceId}`, isPrice: true });
+  else lines.push(`Stripe preflight: prices check skipped (no usable ${mode} price id in registry/offers.json)`);
+  checks.push({ resource: "customers", path: "/v1/customers?limit=1", isPrice: false });
+  checks.push({ resource: "checkout.sessions", path: "/v1/checkout/sessions?limit=1", isPrice: false });
+  for (const c of checks) {
+    let res: Response;
+    try {
+      res = await doFetch(`${STRIPE_API}${c.path}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${key}` },
+        redirect: "error",
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch {
+      ok = false;
+      lines.push(safe(`Stripe preflight failed: ${c.resource} no response (network error or timeout)`));
+      continue;
+    }
+    if (res.status === 200) {
+      lines.push(safe(`Stripe preflight: ${c.resource} ok`));
+      continue;
+    }
+    ok = false;
+    const { type, code } = await stripeErrorInfo(res);
+    if (res.status === 401 || res.status === 403 || type === "StripePermissionError" || code === "more_permissions_required") {
+      lines.push(safe(`permission missing: ${c.resource}`));
+    } else if (c.isPrice && res.status === 404) {
+      lines.push(safe(`price ${priceId} not found for this key's account/mode`));
+    } else {
+      const extra = [type && `type ${type}`, code && `code ${code}`].filter(Boolean).join(", ");
+      lines.push(safe(`Stripe preflight failed: ${c.resource} HTTP ${res.status}${extra ? ` (${extra})` : ""}`));
+    }
+  }
+  return { ok, lines };
+}
+
+export interface StoreDeps {
+  /** writes one variable (the value goes to stdin of the Railway CLI, never to argv) */
+  set: (spec: SecretSpec, value: string) => { ok: boolean; err: string };
+  doFetch?: typeof fetch;
+  offers?: unknown;
+  log?: (line: string) => void;
+  timeoutMs?: number;
+}
+
+/**
+ * The write phase. Stripe preflight first (rk_ key, unless --skip-stripe-preflight): when it finds a problem
+ * nothing is stored and this throws. Then every variable is set in order.
+ */
+export async function storeSecrets(
+  collected: readonly { spec: SecretSpec; value: string }[],
+  opts: Pick<Options, "skipStripePreflight">,
+  deps: StoreDeps,
+  secretValues: readonly string[] = collected.map((c) => c.value),
+): Promise<void> {
+  const log = deps.log ?? ((l: string) => console.log(l));
+  const key = collected.find((c) => c.spec.name === "STRIPE_SECRET_KEY")?.value;
+  const mode = key ? restrictedKeyMode(key) : null;
+  if (key && mode) {
+    if (opts.skipStripePreflight) {
+      log("!!! WARNING: --skip-stripe-preflight: the permissions of the Stripe key were NOT checked. Use this only in an emergency. !!!");
+    } else {
+      const offers = "offers" in deps ? deps.offers : readOffers();
+      const r = await stripePreflight(key, firstPriceId(offers, mode), deps.doFetch ?? fetch, deps.timeoutMs);
+      for (const l of r.lines) log(l);
+      if (!r.ok) throw new Error("Stripe key check failed; nothing was stored. Fix the key's permissions in the Stripe dashboard, then run this again.");
+    }
+  }
+  for (const { spec, value } of collected) {
+    const r = deps.set(spec, value);
+    if (!r.ok) throw new Error(`${spec.name} on ${spec.service}: railway refused: ${redact(r.err, secretValues).slice(0, 300)}`);
+    log(`  set ${spec.service} ${spec.name}`);
+  }
 }
 
 /** C35: 32 random bytes, base64url (43 characters), the format Core's kekFromEnv reads. */
@@ -342,11 +485,8 @@ async function main(): Promise<void> {
     }
 
     // Everything is collected and checked before the first write: a refusal above changes nothing.
-    for (const { spec, value } of collected) {
-      const r = railway(railwaySetArgs(spec.name, spec.service, opts.environment), dir, value);
-      if (!r.ok) throw new Error(`${spec.name} on ${spec.service}: railway refused: ${redact(r.err, values).slice(0, 300)}`);
-      console.log(`  set ${spec.service} ${spec.name}`);
-    }
+    // storeSecrets runs the Stripe key preflight first (an rk_ key): if it fails, nothing is stored.
+    await storeSecrets(collected, opts, { set: (spec, value) => railway(railwaySetArgs(spec.name, spec.service, opts.environment), dir, value) }, values);
     const kekId = collected.find((c) => c.spec.name === "TB_KEK_ID")?.value;
     for (const l of stripeModeNotes(collected)) console.log(l);
     console.log('done. Nothing was deployed. Tell the cutover lead: "secrets are set".');
