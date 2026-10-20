@@ -65,7 +65,7 @@
     "currency": "usd",
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
-      "test": "price_REPLACEtestRules9900",
+      "test": "price_1USXm7AG4xme4qTL6g4zpDjd",
       "live": "price_REPLACEliveRules"
     }
   },
@@ -79,7 +79,7 @@
     "currency": "usd",
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
-      "test": "price_REPLACEtestInbox9900",
+      "test": "price_1USXm8AG4xme4qTLKxw0CMqF",
       "live": "price_REPLACEliveInbox"
     }
   },
@@ -93,7 +93,7 @@
     "currency": "usd",
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
-      "test": "price_REPLACEtestKanban9900",
+      "test": "price_1USXm8AG4xme4qTLs5BIiR7f",
       "live": "price_REPLACEliveKanban"
     }
   },
@@ -107,7 +107,7 @@
     "currency": "usd",
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
-      "test": "price_REPLACEtestEvolution9900",
+      "test": "price_1USXm9AG4xme4qTLIwtB18Qz",
       "live": "price_REPLACEliveEvolution"
     }
   },
@@ -121,7 +121,7 @@
     "currency": "usd",
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
-      "test": "price_REPLACEtestGovernance9900",
+      "test": "price_1USXmAAG4xme4qTLaAvfIvPQ",
       "live": "price_REPLACEliveGovernance"
     }
   },
