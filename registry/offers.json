@@ -10,7 +10,7 @@
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
       "test": "price_1UNB0IAG4xme4qTLCUDHUahc",
-      "live": null
+      "live": "price_1USXoeAA68243rKpdt2xiTbJ"
     }
   },
   {
@@ -24,7 +24,7 @@
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
       "test": "price_1UNB0KAG4xme4qTLMlYhN0ay",
-      "live": null
+      "live": "price_1USXolAA68243rKpNQuguFqS"
     }
   },
   {
@@ -38,7 +38,7 @@
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
       "test": "price_1UPcfOAG4xme4qTLWkDxfc2g",
-      "live": null
+      "live": "price_1USXp1AA68243rKp56T3XnxA"
     }
   },
   {
@@ -58,57 +58,57 @@
   {
     "id": "off_01M4QYGT4M7VJ3R1P1KC8X46VD",
     "kind": "single",
-    "name": "Rules",
+    "name": "Rules & Approvals",
     "products": ["rules"],
     "major": 0,
-    "amount": 100,
+    "amount": 9900,
     "currency": "usd",
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
-      "test": "price_1UPhXlAG4xme4qTLFEtrb5x6",
-      "live": null
+      "test": "price_1USXm7AG4xme4qTL6g4zpDjd",
+      "live": "price_1USXooAA68243rKpQ4QyHt8L"
     }
   },
   {
     "id": "off_01M4QYGT4M309FAH3JWJXM85BB",
     "kind": "single",
-    "name": "Inbox",
+    "name": "Operator Inbox",
     "products": ["inbox"],
     "major": 0,
-    "amount": 100,
+    "amount": 9900,
     "currency": "usd",
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
-      "test": "price_1UPhXpAG4xme4qTLuDZTSBZh",
-      "live": null
+      "test": "price_1USXm8AG4xme4qTLKxw0CMqF",
+      "live": "price_1USXorAA68243rKpupHaevZY"
     }
   },
   {
     "id": "off_01M4QYGT4MSC5QQKM5S7T9YWMF",
     "kind": "single",
-    "name": "Kanban",
+    "name": "Task Board",
     "products": ["kanban"],
     "major": 0,
-    "amount": 100,
+    "amount": 9900,
     "currency": "usd",
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
-      "test": "price_1UPhXrAG4xme4qTL81b73CNP",
-      "live": null
+      "test": "price_1USXm8AG4xme4qTLs5BIiR7f",
+      "live": "price_1USXotAA68243rKpQKyb8iGr"
     }
   },
   {
     "id": "off_01M4QYGT4M5C5MART0JX6T2DMW",
     "kind": "single",
-    "name": "Evolution",
+    "name": "Evolving Workflows",
     "products": ["evolution"],
     "major": 0,
-    "amount": 100,
+    "amount": 9900,
     "currency": "usd",
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
-      "test": "price_1UPhXsAG4xme4qTL3eqxxOnn",
-      "live": null
+      "test": "price_1USXm9AG4xme4qTLIwtB18Qz",
+      "live": "price_1USXowAA68243rKpKQR0GMCC"
     }
   },
   {
@@ -117,12 +117,12 @@
     "name": "Governance",
     "products": ["fleet"],
     "major": 0,
-    "amount": 100,
+    "amount": 9900,
     "currency": "usd",
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
-      "test": "price_1UPhXmAG4xme4qTLLbDOejds",
-      "live": null
+      "test": "price_1USXmAAG4xme4qTLaAvfIvPQ",
+      "live": "price_1USXozAA68243rKpj87U9wh9"
     }
   },
   {
