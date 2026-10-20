@@ -243,18 +243,18 @@
     "product": "connect",
     "version": "0.6.1",
     "devReleaseId": "rel_01M5C1TDJMG0PQZ9KV21ZQAPH4",
-    "promotedAt": "2026-10-20T23:59:00Z",
+    "promotedAt": "2026-10-20T07:30:00Z",
     "by": "connect-lead",
     "decision": "C295",
     "expedited": true,
     "incident": "INC-20261020-01",
     "evidence": {
-      "soakStart": "2026-10-20T23:00:00Z",
-      "soakEnd": "2026-10-20T23:59:00Z",
+      "soakStart": "2026-10-20T07:08:12.134Z",
+      "soakEnd": "2026-10-20T07:22:22Z",
       "workspace": "qa1",
-      "qaRun": "PLACEHOLDER — Coordinator fills: coordination/qa/VERDICTS.md Connect 0.6.1 roll on qa1 (0.6.0 plan + 0.6.1 delta) QA verdict line",
+      "qaRun": "qa1 2026-10-20 Connect 0.6.1 roll + rows: PASS, 0 findings (qa/VERDICTS.md); Coordinator read: migration 0015 applied (connect_tools.send_recipients), one tool-class re-sync c276c-1|catalog-0.3.0|policies-38f14a927730eda9 synced=1 failed=0; expedited C295 / INC-20261020-01",
       "platform": {
-        "core": "d9eb0675ee1bdbd5909b1d0f448dfcc9f2a7f971",
+        "core": "12e02f12c2c2457bb93ce0fbb5b7946b13575fb4",
         "bridge": "0.1.31"
       }
     }
