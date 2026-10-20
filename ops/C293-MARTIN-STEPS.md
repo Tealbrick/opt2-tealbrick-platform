@@ -16,9 +16,9 @@ WARNING: Do not merge the website pull request before steps a, c, c2, the image 
 WARNING: Do not run `ops/woodpecker-activate.ts` before the platform pull request of this change is merged.
 The old version of that script deletes the secrets `site_deploy_key` and `site_deploy_token`.
 
-WARNING: Anyone with write access to the repo can make the robot deploy LIVE, also around the code-owner review.
-Woodpecker gives secrets by event, not by branch. A branch with its own workflow file can use the deploy key and the token.
-So the model is: people with write access are trusted publishers, and every LIVE deploy is visible.
+WARNING: Until the rollout test passes, treat everyone with write access as able to deploy LIVE.
+After it passes, a writer can still merge and tag a non-owned change to LIVE (by design, C293).
+After it passes, a writer cannot read the secrets or move `site-dev` or `site-live` directly.
 Keep the list of people with write access short.
 
 ## a. Create the two branches on GitHub
