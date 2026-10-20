@@ -10,7 +10,7 @@
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
       "test": "price_1UNB0IAG4xme4qTLCUDHUahc",
-      "live": "price_REPLACEliveKnowledge"
+      "live": "price_1USXoeAA68243rKpdt2xiTbJ"
     }
   },
   {
@@ -24,7 +24,7 @@
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
       "test": "price_1UNB0KAG4xme4qTLMlYhN0ay",
-      "live": "price_REPLACEliveConnect"
+      "live": "price_1USXolAA68243rKpNQuguFqS"
     }
   },
   {
@@ -38,7 +38,7 @@
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
       "test": "price_1UPcfOAG4xme4qTLWkDxfc2g",
-      "live": "price_REPLACEliveCheck100"
+      "live": "price_1USXp1AA68243rKp56T3XnxA"
     }
   },
   {
@@ -66,7 +66,7 @@
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
       "test": "price_1USXm7AG4xme4qTL6g4zpDjd",
-      "live": "price_REPLACEliveRules"
+      "live": "price_1USXooAA68243rKpQ4QyHt8L"
     }
   },
   {
@@ -80,7 +80,7 @@
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
       "test": "price_1USXm8AG4xme4qTLKxw0CMqF",
-      "live": "price_REPLACEliveInbox"
+      "live": "price_1USXorAA68243rKpupHaevZY"
     }
   },
   {
@@ -94,7 +94,7 @@
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
       "test": "price_1USXm8AG4xme4qTLs5BIiR7f",
-      "live": "price_REPLACEliveKanban"
+      "live": "price_1USXotAA68243rKpQKyb8iGr"
     }
   },
   {
@@ -108,7 +108,7 @@
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
       "test": "price_1USXm9AG4xme4qTLIwtB18Qz",
-      "live": "price_REPLACEliveEvolution"
+      "live": "price_1USXowAA68243rKpKQR0GMCC"
     }
   },
   {
@@ -122,7 +122,7 @@
     "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
     "stripePrice": {
       "test": "price_1USXmAAG4xme4qTLaAvfIvPQ",
-      "live": "price_REPLACEliveGovernance"
+      "live": "price_1USXozAA68243rKpj87U9wh9"
     }
   },
   {
