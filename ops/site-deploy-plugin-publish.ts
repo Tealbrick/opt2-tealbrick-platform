@@ -3,7 +3,7 @@
 //   node ops/site-deploy-plugin-publish.ts --push --user <name>  builds (linux/amd64 + linux/arm64) and pushes forge.polygonface.com/polygonface/tb-site-deploy:<VERSION>
 // <VERSION> is the content of ops/site-deploy-plugin/VERSION. A tag is NEVER reused: if the tag already exists in the registry the script refuses
 // (bump VERSION, update the workflow and the Woodpecker secret filters instead). The image is multi-arch because the Woodpecker agents are
-// not all the same CPU (foxy is arm64).
+// not all the same CPU (one agent is arm64).
 // Token: a Forgejo token with write:package, in ~/.config/opt2-tealbrick/forge-packages-token (mode 600). It is read from the file, sent to
 // `docker login --password-stdin` and as an Authorization header to Forgejo; never printed, never on argv. --user is the Forgejo login name
 // that owns the token (or the environment variable FORGE_USER).

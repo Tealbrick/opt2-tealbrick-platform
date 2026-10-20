@@ -187,14 +187,16 @@ If steps 5 and 6 both match: tell the Coordinator "rollout test passed". Only th
 
 ## (c) Both agents pull the image
 
-The plugin image must run on both Woodpecker agents (`neuu` and `foxy`). foxy is arm64; the image is built for amd64 and arm64.
+The plugin image must run on BOTH Woodpecker agents. One agent is arm64, the other amd64; the image is built for amd64 and arm64.
+The agents' `hostname` labels are internal names and are NOT written in this public repo: take them from the private
+coordination notes (coordination/specs/C293-WEBSITE-SELF-SERVICE.md, "Operator notes") and set `AGENT_1` and `AGENT_2` first.
 Do this on a new branch the same way as (b), with one more file per agent.
 
 1. Make the branch `c293-agent-test` from `origin/main`, as in (b) step 1.
 2. Write two files. Each runs the plugin on one named agent. The plugin refuses (not on main), but its first log line proves the image ran there.
 
 ```sh
-for A in neuu foxy; do
+for A in "$AGENT_1" "$AGENT_2"; do
 cat > .woodpecker/agent-test-$A.yaml <<YAML
 # C293 agent test. Do not merge.
 labels:
@@ -216,7 +218,7 @@ done
 git add .woodpecker && git commit -m "test: C293 agent pull test (do not merge)" && git push -u origin c293-agent-test
 ```
 
-3. Open the newest pipeline of the branch `c293-agent-test` in Woodpecker. It has two workflows: `agent-test-neuu` and `agent-test-foxy`.
+3. Open the newest pipeline of the branch `c293-agent-test` in Woodpecker. It has two workflows: `agent-test-$AGENT_1` and `agent-test-$AGENT_2`.
 4. Expected for each workflow: the step log starts with the image pull (or no pull line if the image is cached) and then shows
 
 ```
