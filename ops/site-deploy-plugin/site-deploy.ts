@@ -21,7 +21,7 @@
  * Exit codes: 0 done, 1 refused or failed, 2 wrong input.
  */
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -55,6 +55,10 @@ export interface GitResult {
   stderr: string;
 }
 export interface Deps {
+  /** The pipeline workspace (where the clone is). Injected: nothing below the entry point reads the process environment or cwd. */
+  cwd: string;
+  /** PATH for the git child. Injected for the same reason. */
+  path: string;
   fetch: typeof fetch;
   /** Runs `git <args>` with this environment. Tests replace it; the default is child_process.spawnSync. */
   git: (args: string[], env: Record<string, string>) => GitResult;
@@ -206,9 +210,9 @@ function removeTree(path: string): void {
 }
 
 /** The ONLY environment a git child gets: no PLUGIN_*, no CI_*, no secret. HOME is the temp folder; no global or system git config is read. */
-export function gitEnv(home: string, extra: Record<string, string> = {}): Record<string, string> {
+export function gitEnv(home: string, path: string, extra: Record<string, string> = {}): Record<string, string> {
   return {
-    PATH: process.env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin",
+    PATH: path,
     HOME: home,
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
@@ -237,7 +241,7 @@ export async function requireDeployedToDev(ctx: Ctx, sha: string): Promise<void>
  *  read); the commit objects are read from the workspace through GIT_ALTERNATE_OBJECT_DIRECTORIES (and its shallow file is copied). The child
  *  gets a minimal environment (gitEnv + GIT_SSH_COMMAND); `--no-verify` and `core.hooksPath=/dev/null` switch hooks off a second time.
  *  `remote` and `workspace` are parameters for the tests only; run() never passes them. */
-export function pushBranch(ctx: Ctx, branch: string, sha: string, remote: string = SSH_REMOTE, workspace: string = ctx.workspace ?? process.cwd()): void {
+export function pushBranch(ctx: Ctx, branch: string, sha: string, remote: string = SSH_REMOTE, workspace: string = ctx.workspace ?? ctx.deps.cwd): void {
   if (!BRANCHES.includes(branch) || !SHA_RE.test(sha))
     throw new DeployError(`refusing to push "${branch}": only ${BRANCHES.join(" and ")} take a full commit SHA`);
   const dir = mkdtempSync(join(tmpdir(), "site-deploy-"));
@@ -263,13 +267,17 @@ export function pushBranch(ctx: Ctx, branch: string, sha: string, remote: string
       "-o",
       "BatchMode=yes",
     ];
-    const init = ctx.deps.git(["init", "--bare", "--quiet", "--template=", gitDir], gitEnv(dir));
+    const init = ctx.deps.git(["init", "--bare", "--quiet", "--template=", gitDir], gitEnv(dir, ctx.deps.path));
     if (init.status !== 0) throw new DeployError(scrub(ctx, `git init of the temporary repo failed (exit ${init.status}): ${init.stderr.trim().slice(-200)}`));
     const shallow = join(workspace, ".git", "shallow");
-    if (existsSync(shallow)) writeFileSync(join(gitDir, "shallow"), readFileSync(shallow));
+    if (existsSync(shallow)) {
+      // a shallow clone (the Woodpecker default): the temp repo must know the same boundary
+      mkdirSync(gitDir, { recursive: true });
+      writeFileSync(join(gitDir, "shallow"), readFileSync(shallow));
+    }
     const r = ctx.deps.git(
       ["-c", "core.hooksPath=/dev/null", "push", "--no-verify", remote, `${sha}:refs/heads/${branch}`],
-      gitEnv(dir, {
+      gitEnv(dir, ctx.deps.path, {
         GIT_DIR: gitDir,
         GIT_ALTERNATE_OBJECT_DIRECTORIES: join(workspace, ".git", "objects"),
         GIT_SSH_COMMAND: ssh.join(" "),
@@ -496,6 +504,8 @@ export async function run(env: Env, deps: Deps, liveOpts: LiveOptions = {}): Pro
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const deps: Deps = {
+    cwd: process.cwd(),
+    path: process.env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin",
     fetch,
     git: (args, extra) => {
       const r = spawnSync("git", args, { env: extra, encoding: "utf8", timeout: 120_000, stdio: ["ignore", "pipe", "pipe"] });

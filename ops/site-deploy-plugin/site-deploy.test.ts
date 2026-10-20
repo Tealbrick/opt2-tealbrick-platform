@@ -26,6 +26,9 @@ import {
   smoke,
 } from "./site-deploy.ts";
 
+/** An empty workspace and a fixed PATH: no test depends on the folder it runs in or on the CI environment of the runner. */
+const CWD = mkdtempSync(join(tmpdir(), "tb-plugin-cwd-"));
+const TEST_PATH = "/usr/bin:/bin";
 const TOKEN = "github_pat_TESTONLY0123456789abcdefghijklmnop";
 // A fake key (not a real key): the BEGIN/END lines and a body line that must never appear in any output.
 const KEY_BODY = "FAKEKEYBODYLINE0123456789abcdefghijklmnopqrstuvwxyzFAKE";
@@ -161,6 +164,8 @@ function setup(w: World) {
   let clock = Date.parse("2026-10-20T10:00:00Z");
   const lines: string[] = [];
   const deps: Deps = {
+    cwd: CWD,
+    path: TEST_PATH,
     fetch: fakeFetch(w),
     git: (args, env) => {
       if (args[0] === "init") {
@@ -396,6 +401,8 @@ test("fastForward: already at the commit is a success and pushes nothing", T, as
 test("errors from GitHub carry no token even if the server echoes it", T, async () => {
   const lines: string[] = [];
   const deps: Deps = {
+    cwd: CWD,
+    path: TEST_PATH,
     git: () => ({ status: 0, stderr: "" }),
     fetch: (async () => json(401, { message: `Bad credentials ${TOKEN}` })) as typeof fetch,
     now: () => 0,
@@ -409,6 +416,8 @@ test("errors from GitHub carry no token even if the server echoes it", T, async 
 
 test("a network error is reported without the token", T, async () => {
   const deps: Deps = {
+    cwd: CWD,
+    path: TEST_PATH,
     git: () => ({ status: 0, stderr: "" }),
     fetch: (async () => {
       throw new Error(`connect failed for ${TOKEN}`);
@@ -427,6 +436,8 @@ test("pollVersion: tolerates errors and wrong answers, returns when the SHA show
   let n = 0;
   let clock = 0;
   const deps: Deps = {
+    cwd: CWD,
+    path: TEST_PATH,
     git: () => ({ status: 0, stderr: "" }),
     fetch: (async () => {
       n++;
@@ -448,6 +459,8 @@ test("pollVersion: tolerates errors and wrong answers, returns when the SHA show
 
 test("smoke: reports each path; a 404 robots.txt fails", T, async () => {
   const deps: Deps = {
+    cwd: CWD,
+    path: TEST_PATH,
     git: () => ({ status: 0, stderr: "" }),
     fetch: (async (input: string | URL | Request) => {
       const p = new URL(String(input)).pathname;
@@ -832,7 +845,7 @@ test("S4: the git child gets a minimal environment: no PLUGIN_*, no CI_*, no sec
       else process.env[k] = v;
     }
   }
-  assert.deepEqual(Object.keys(gitEnv("/h")).sort(), ["GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GIT_TERMINAL_PROMPT", "HOME", "PATH"]);
+  assert.deepEqual(Object.keys(gitEnv("/h", "/bin")).sort(), ["GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GIT_TERMINAL_PROMPT", "HOME", "PATH"]);
 });
 
 test("S4 real git: a hook in the workspace is NOT run, the workspace config is not read, and the commit reaches the remote", { timeout: 60_000 }, () => {
@@ -881,6 +894,8 @@ test("S4 real git: a hook in the workspace is NOT run, the workspace config is n
   sh(ws, ["config", `url.file:///nowhere/.insteadOf`, `file://${remote}`]);
   sh(ws, ["config", "core.sshCommand", `touch ${marker}`]);
   const deps: Deps = {
+    cwd: CWD,
+    path: process.env.PATH ?? TEST_PATH,
     fetch: (async () => new Response("{}")) as typeof fetch,
     git: (args, e) => {
       const r = spawnSync("git", args, { env: e, encoding: "utf8" });
@@ -893,4 +908,47 @@ test("S4 real git: a hook in the workspace is NOT run, the workspace config is n
   pushBranch({ token: TOKEN, key: KEY, deps }, "site-dev", sha, `file://${remote}`, ws);
   assert.ok(!existsSync(marker), "no hook and no workspace config ran");
   assert.equal(sh(remote, ["rev-parse", "refs/heads/site-dev"]), sha);
+});
+
+// ---- Round 4 fix: the runner's own environment and workspace must not matter ----
+
+test("a shallow workspace (the Woodpecker clone) does not break the push: the boundary is copied into the temp repo", T, async () => {
+  const ws = mkdtempSync(join(tmpdir(), "ws-shallow-"));
+  mkdirSync(join(ws, ".git"));
+  writeFileSync(join(ws, ".git", "shallow"), `${A}\n`);
+  const w = world();
+  const { deps } = setup(w);
+  pushBranch({ token: TOKEN, key: KEY, deps, workspace: ws }, "site-dev", B);
+  assert.equal(w.gitCalls.length, 1);
+  assert.equal(w.gitCalls[0]?.env.GIT_ALTERNATE_OBJECT_DIRECTORIES, join(ws, ".git", "objects"));
+});
+
+test("the runner's environment (CI=true, CI_*, PLUGIN_*) and its cwd change nothing: the plugin only sees the env it is given", T, async () => {
+  const keys = [
+    "CI",
+    "CI_COMMIT_SHA",
+    "CI_COMMIT_TAG",
+    "CI_WORKSPACE",
+    "CI_PIPELINE_NUMBER",
+    "PLUGIN_MODE",
+    "PLUGIN_TOKEN",
+    "PLUGIN_DEPLOY_KEY",
+    "PLUGIN_REPO",
+  ] as const;
+  const saved = keys.map((k) => [k, process.env[k]] as const);
+  for (const k of keys) process.env[k] = k === "CI_COMMIT_SHA" ? "deadbeef" : k === "PLUGIN_MODE" ? "live" : "x";
+  try {
+    const w = world();
+    const { deps } = setup(w);
+    // explicit env, no inherited CI_*/PLUGIN_*: mode and the candidate come only from here
+    assert.equal(await runPlugin({ PLUGIN_MODE: "dev", PLUGIN_TOKEN: TOKEN, PLUGIN_DEPLOY_KEY: KEY, CI_COMMIT_SHA: B }, deps), 0);
+    assert.equal(w.heads["site-dev"], B);
+    const text = JSON.stringify(w.gitCalls.map((g) => g.env));
+    assert.ok(!text.includes('"x"') && !text.includes("deadbeef"), "nothing of the runner environment reaches git");
+  } finally {
+    for (const [k, v] of saved) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
 });
