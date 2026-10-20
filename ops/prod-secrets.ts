@@ -235,7 +235,7 @@ export function railwaySetArgs(name: string, service: string, environment: strin
   return ["variable", "set", name, "--stdin", "--skip-deploys", "--service", service, "--environment", environment];
 }
 
-async function askHidden(prompt: string): Promise<string> {
+export async function askHidden(prompt: string): Promise<string> {
   // Raw-mode reader: readline clears the prompt line on a TTY (cursorTo + clearScreenDown), so the prompt vanished.
   process.stderr.write(`${prompt}(hidden: paste with Cmd+V, nothing shows, then press Enter) `);
   const stdin = process.stdin;

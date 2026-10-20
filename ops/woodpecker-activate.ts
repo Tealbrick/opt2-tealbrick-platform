@@ -157,7 +157,7 @@ interface Want {
 }
 const WANT: Want[] = [];
 /** C222 (template ci-v9.10, C232 ci-v9.11): repo secrets made by hand and used ONLY by one step of .woodpecker/release.yaml each
- *  (release-publish: tb_release_token; release-image-push: tb_ghcr_token). Never
+ *  (release-publish: tb_release_token; release-image-push: tb_ghcr_token) and, for the website, site_deploy_token (C293a). Never
  *  deleted or written here; the script warns when the event filter is not exactly these events or an image filter is set
  *  (Woodpecker refuses image-filtered secrets on command steps). */
 interface Keep {
@@ -171,6 +171,9 @@ const KEEP: Keep[] = [
   { repo: "opt2-tealbrick-cli", name: "tb_release_token", events: ["manual", "tag"] },
   { repo: "opt2-tealbrick-bridge", name: "tb_release_token", events: ["manual", "tag"] },
   { repo: "opt2-tealbrick-bridge", name: "tb_ghcr_token", events: ["manual", "tag"] },
+  // C293a: the website self-service deploy. site_deploy_token (GitHub fine-grained token, this one repo, Contents read and write) is
+  // read ONLY by .woodpecker/site-deploy.yaml of opt2-tealbrick-website. Martin stores it with ops/website-autodeploy-setup.ts.
+  { repo: "opt2-tealbrick-website", name: "site_deploy_token", events: ["push", "tag"] },
 ];
 
 // C72: no org-level secrets in the opt2 Woodpecker org. ONLY the Martin-Atrin org (opt2 only). NEVER the Tealbrick org: it is
