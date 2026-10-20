@@ -171,9 +171,11 @@ const KEEP: Keep[] = [
   { repo: "opt2-tealbrick-cli", name: "tb_release_token", events: ["manual", "tag"] },
   { repo: "opt2-tealbrick-bridge", name: "tb_release_token", events: ["manual", "tag"] },
   { repo: "opt2-tealbrick-bridge", name: "tb_ghcr_token", events: ["manual", "tag"] },
-  // C293a: the website self-service deploy. site_deploy_token (GitHub fine-grained token, this one repo, Contents read and write) is
-  // read ONLY by .woodpecker/site-deploy.yaml of opt2-tealbrick-website. Martin stores it with ops/website-autodeploy-setup.ts.
+  // C293a: the website self-service deploy. site_deploy_key (the WRITE deploy key of the website repo; moves site-dev/site-live over SSH) and
+  // site_deploy_token (GitHub fine-grained token, this one repo, Contents read and write; release record only) are
+  // read ONLY by .woodpecker/site-deploy.yaml of opt2-tealbrick-website. Martin stores them with ops/website-autodeploy-setup.ts.
   { repo: "opt2-tealbrick-website", name: "site_deploy_token", events: ["push", "tag"] },
+  { repo: "opt2-tealbrick-website", name: "site_deploy_key", events: ["push", "tag"] },
 ];
 
 // C72: no org-level secrets in the opt2 Woodpecker org. ONLY the Martin-Atrin org (opt2 only). NEVER the Tealbrick org: it is

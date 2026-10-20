@@ -1,58 +1,84 @@
 # C293 steps for Martin: website self-service deploy
 
-Language: ASD-STE100. Each step has one instruction. Do the steps in the order a, c, d, e, b, then merge, then f.
+Language: ASD-STE100. Each step has one instruction. Do the steps in this order: a, c, d, e, b, then merge, then f.
 Repo = `Tealbrick/opt2-tealbrick-website`. Platform repo = `Tealbrick/opt2-tealbrick-platform`.
 
 What this gives you: a merge to `main` deploys DEV. A tag `site-vX.Y.Z` on a `main` commit deploys LIVE.
 Railway builds from the branches `site-dev` (DEV) and `site-live` (LIVE). No Railway token is used in CI.
+Woodpecker moves the two branches over SSH with a write deploy key (`site_deploy_key`).
+The GitHub token (`site_deploy_token`) only writes the release record. It does not move branches.
 
 WARNING: Do not merge the website pull request before steps a, c, d and e are done. The deploy step fails without them.
 
 WARNING: Do not run `ops/woodpecker-activate.ts` before the platform pull request of this change is merged.
-The old version of that script deletes the secret `site_deploy_token`.
+The old version of that script deletes the secrets `site_deploy_key` and `site_deploy_token`.
+
+WARNING: Anyone with write access to the repo can make the robot deploy LIVE, also around the code-owner review.
+Woodpecker gives secrets by event, not by branch. A branch with its own workflow file can use the deploy key and the token.
+So the model is: people with write access are trusted publishers, and every LIVE deploy is visible.
+Keep the list of people with write access short.
 
 ## a. Create the two branches on GitHub
 
 WARNING: A different commit on `site-live` deploys that commit to LIVE (tealbrick.com).
 
-1. Open a terminal.
+1. Open a terminal in a clone of the website repo.
 2. Run `gh auth status`. Make sure it shows your admin login.
-3. Run `MAIN=$(gh api repos/Tealbrick/opt2-tealbrick-website/git/ref/heads/main --jq .object.sha)`.
-4. Run `gh api -X POST repos/Tealbrick/opt2-tealbrick-website/git/refs -f ref=refs/heads/site-dev -f sha="$MAIN"`.
-5. Open the Railway LIVE environment, service `website`. Make sure the active deployment shows commit `af814db`.
-6. Run `gh api -X POST repos/Tealbrick/opt2-tealbrick-website/git/refs -f ref=refs/heads/site-live -f sha=af814db94c7a94551f73895428732f8bfb6e5dfa`.
+3. Run `git fetch origin`.
+4. Run `MAIN=$(gh api repos/Tealbrick/opt2-tealbrick-website/git/ref/heads/main --jq .object.sha)`.
+5. Run `gh api -X POST repos/Tealbrick/opt2-tealbrick-website/git/refs -f ref=refs/heads/site-dev -f sha="$MAIN"`.
+6. Open the Railway LIVE environment, service `website`. Make sure the active deployment shows commit `af814db`.
+7. Run `git merge-base --is-ancestor af814db94c7a94551f73895428732f8bfb6e5dfa origin/main && echo YES`.
+8. Make sure the answer is `YES`. If there is no answer, stop and ask the Coordinator.
+9. Run `gh api -X POST repos/Tealbrick/opt2-tealbrick-website/git/refs -f ref=refs/heads/site-live -f sha=af814db94c7a94551f73895428732f8bfb6e5dfa`.
    This is the RS-7.6 website commit that LIVE runs now.
-7. Run `gh api repos/Tealbrick/opt2-tealbrick-website/git/ref/heads/site-live --jq .object.sha`.
-8. Make sure the answer starts with `af814db`.
+10. Run `gh api repos/Tealbrick/opt2-tealbrick-website/git/ref/heads/site-live --jq .object.sha`.
+11. Make sure the answer starts with `af814db`.
 
-## c. Create the GitHub token
+## c. Create the deploy key and the GitHub token
 
-WARNING: Do not paste the token in a chat, a ticket or a file. Only step d uses it.
+WARNING: Do not paste the private key or the token in a chat, a ticket or a file you keep. Only step d uses them.
 
-1. Open GitHub. Go to Settings, Developer settings, Personal access tokens, Fine-grained tokens.
-2. Click "Generate new token".
-3. Set the name to `site-deploy`.
-4. Set "Resource owner" to `Tealbrick`.
-5. Set "Expiration" to a custom date, one year from today.
-6. Set "Repository access" to "Only select repositories". Select `opt2-tealbrick-website` only.
-7. Open "Repository permissions". Set "Contents" to "Read and write". Leave every other permission as it is.
-8. Click "Generate token". Copy the token.
-9. If the organisation asks for approval of the token, approve it as an owner.
-10. Write the expiry date in `ops/ROTATION-LOG.md` (date only, not the token).
+WARNING: The repo must have exactly ONE deploy key with write access. A ruleset lets every deploy key move `site-live`.
 
-## d. Store the token in Woodpecker
+1. Run `mkdir -p ~/tmp-site-deploy && cd ~/tmp-site-deploy`.
+2. Run `ssh-keygen -t ed25519 -N "" -C site-deploy -f ./site_deploy_key`. This makes a private and a public file.
+3. Open GitHub. Open the website repo, then Settings, then Deploy keys.
+4. Click "Add deploy key". Set the title to `site-deploy`.
+5. Paste the content of `site_deploy_key.pub`.
+6. Tick "Allow write access". Click "Add key".
+7. Run `gh api repos/Tealbrick/opt2-tealbrick-website/keys --jq '.[]|{title,read_only}'`.
+8. Make sure exactly one key shows `read_only: false`.
+9. Open GitHub. Go to Settings, Developer settings, Personal access tokens, Fine-grained tokens. Click "Generate new token".
+10. Set the name to `site-deploy-release`. Set "Resource owner" to `Tealbrick`.
+11. Set "Expiration" to a custom date, one year from today.
+12. Set "Repository access" to "Only select repositories". Select `opt2-tealbrick-website` only.
+13. Open "Repository permissions". Set "Contents" to "Read and write". Leave every other permission as it is.
+14. Click "Generate token". Copy the token.
+15. If the organisation asks for approval of the token, approve it as an owner.
+16. Write the token expiry date in `ops/ROTATION-LOG.md` (date only, not the token).
 
-WARNING: The script asks for the token with hidden input. Nothing shows on the screen when you paste.
+Optional but recommended: a bot account for the token.
+17. Create a GitHub account only for this job. Give it the "Write" role on the website repo. Do not give it "Admin".
+18. Create the token in step 9 to 14 with that account. A leaked token then gives write access, not your admin powers.
+
+## d. Store the key and the token in Woodpecker
+
+WARNING: The script asks for both values with hidden input. Nothing shows on the screen when you paste.
 
 1. Open a terminal in the platform repo (after its pull request is merged, or on the branch `feat/c293-website-autodeploy-setup`).
 2. Run `node ops/website-autodeploy-setup.ts --dry-run`. Read the plan.
 3. Run `node ops/website-autodeploy-setup.ts`.
-4. Paste the token. Press Enter.
-5. Wait for the last line. It must say `done`.
-6. Make sure the line "secret names" lists `site_deploy_token`.
-7. Close the terminal tab. Clear the clipboard.
+4. Run `cat ~/tmp-site-deploy/site_deploy_key` in a second terminal tab. Copy the whole output.
+5. Paste it in the first tab. The script stops reading at the last line of the key.
+6. Paste the GitHub token. Press Enter.
+7. Wait for the last line. It must say `done`.
+8. Make sure the line "secret names" lists `site_deploy_key` and `site_deploy_token`.
+9. Delete the two files in `~/tmp-site-deploy` yourself. Delete the folder. Clear the clipboard.
+10. Close both terminal tabs.
 
 If the script says "not in Woodpecker", run `node ops/woodpecker-activate.ts --repo website` and run step d again.
+If the script says the Woodpecker URL is not https, correct `WOODPECKER_URL` in `~/.config/opt2-tealbrick/hosts.env`.
 
 ## e. Point Railway at the two branches
 
@@ -73,16 +99,21 @@ Railway can start one deployment of the same commit after you change a branch. T
 Railway documentation says the trigger branch is a service setting, and that environments can follow different branches.
 Check on screen that the DEV and the LIVE settings are separate. If one change moved the other, stop and tell the Coordinator.
 
-## b. Apply the branch protection
+## b. Apply the rulesets
 
-WARNING: On the free GitHub plan with a private repo, GitHub refuses branch protection (HTTP 403, checked 2026-10-20).
-CODEOWNERS also does not bind then.
+WARNING: On the free GitHub plan with a private repo, GitHub refuses rulesets (HTTP 403, checked 2026-10-20).
+Rulesets work on public repos only. CODEOWNERS also does not bind on a private repo.
 
-1. Open `docs/BRANCH-PROTECTION.md` in the website repo. Read the section "Read this first".
-2. Decide: make the repo public, or stay private without protection.
-3. If you stay private, stop here. The script guards stay active. Tell the Coordinator.
-4. If the repo is public, run the commands in the sections "main" and "site-dev and site-live".
-5. Run the two check commands at the end of the file. Make sure `site-live` shows `force: false`.
+WARNING: Create the branches `site-dev` and `site-live` (step a) before ruleset 2. Only the deploy key can create them after that.
+
+1. Open `docs/BRANCH-PROTECTION.md` in the website repo. Read the section "Prerequisite: the repo must be public".
+2. Decide: make the repo public, or stay private without rulesets.
+3. If you stay private, stop here. The guards in the deploy script stay active. Tell the Coordinator.
+4. If the repo is public, run the commands of ruleset 1, ruleset 2 and ruleset 3 in that file.
+5. Run the five checks at the end of that file.
+6. Make sure ruleset 2 lists "Deploy keys" as the only bypass.
+7. Read the section "Residual risk". Decide if Teiger212 keeps the "admin" role or gets the "write" role.
+   Admins can edit rulesets.
 
 ## Merge the website pull request
 
@@ -104,4 +135,5 @@ An operator does these steps. Use the DEV address `https://website-production-66
 6. Open the DEV site. Make sure the home page loads.
 7. Tell the Coordinator: "DEV rollback test passed".
 
-After step 7 the first LIVE deploy is a tag `site-v1.0.0` on `main`. See "Publish the website" in the website `CONTRIBUTING.md`.
+After step 7 the first LIVE deploy is a tag `site-v1.0.0` on the commit you checked on DEV.
+See "Publish the website" in the website `CONTRIBUTING.md`.

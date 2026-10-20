@@ -1,11 +1,35 @@
 // C293a: ops/website-autodeploy-setup.ts with a mocked Woodpecker (no network, no real token, no prompt).
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checkToken, EVENTS, parseArgs, planLines, REPO, SECRET_NAME, type SecretInfo, storeSecret } from "./website-autodeploy-setup.ts";
+import {
+  checkKey,
+  checkToken,
+  EVENTS,
+  KEY_SECRET,
+  parseArgs,
+  planLines,
+  REPO,
+  requireHttps,
+  SECRET_NAMES,
+  type SecretInfo,
+  storeSecrets,
+  TOKEN_SECRET,
+} from "./website-autodeploy-setup.ts";
 
 // key-shaped strings are assembled at run time so the secret scan never sees a token shape in this file
 const GH = ["github", "pat", "11TESTONLY0123456789", "abcdefghijklmnopqrstuvwxyz"].join("_");
 const WP = { url: "https://wp.example.test", token: "wp-test-token-abcdefgh" };
+
+/** A key-shaped test value built at run time: the openssh-key-v1 header, cipher "none", key type ssh-ed25519, filler. Not a real key. */
+function fakeKey(cipher = "none", type = "ssh-ed25519"): string {
+  const u32 = (n: number) => Buffer.from([0, 0, 0, n]);
+  const str = (t: string) => Buffer.concat([u32(t.length), Buffer.from(t, "latin1")]);
+  const raw = Buffer.concat([Buffer.from("openssh-key-v1\0", "latin1"), str(cipher), str("none"), str("none"), u32(1), str(type), Buffer.alloc(64, 7)]);
+  const lines = raw.toString("base64").match(/.{1,70}/g) ?? [];
+  return ["-----BEGIN OPENSSH PRIVATE KEY-----", ...lines, "-----END OPENSSH PRIVATE KEY-----"].join("\n");
+}
+const KEY = fakeKey();
+const VALUES = { [TOKEN_SECRET]: GH, [KEY_SECRET]: KEY };
 const T = { timeout: 10_000 };
 
 interface Call {
@@ -66,79 +90,103 @@ test("checkToken: only a fine-grained GitHub token passes; the reason never hold
   }
 });
 
+test("checkKey: an unencrypted ed25519 OpenSSH key passes; passphrase, other type, public key and junk are refused", T, () => {
+  assert.equal(checkKey(KEY), null);
+  assert.equal(checkKey(`${KEY}\n`), null);
+  assert.match(checkKey(fakeKey("aes256-ctr")) ?? "", /passphrase/);
+  assert.match(checkKey(fakeKey("none", "ssh-rsa")) ?? "", /ed25519/);
+  for (const bad of ["", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 comment", "-----BEGIN OPENSSH PRIVATE KEY-----\n!!!\n-----END OPENSSH PRIVATE KEY-----", "hello"]) {
+    const why = checkKey(bad);
+    assert.ok(why, bad);
+    assert.ok(!bad || !why.includes(bad));
+  }
+});
+
+test("requireHttps: a Woodpecker URL that is not https is refused", T, async () => {
+  requireHttps("https://wp.example.test");
+  for (const bad of ["http://wp.example.test", "ftp://x", "wp.example.test", "", "javascript:alert(1)"]) assert.throws(() => requireHttps(bad), /https/);
+  const m = mock();
+  await assert.rejects(() => storeSecrets({ url: "http://wp.example.test", token: WP.token }, VALUES, m.fetch), /https/);
+  assert.equal(m.calls.length, 0, "no call (and so no secret) goes to a plain-http URL");
+});
+
 test("parseArgs: only --dry-run", T, () => {
   assert.deepEqual(parseArgs([]), { dryRun: false });
   assert.deepEqual(parseArgs(["--dry-run"]), { dryRun: true });
   assert.throws(() => parseArgs(["--force"]), /unknown option/);
 });
 
-test("planLines: names the repo, the secret and exactly push + tag; no value", T, () => {
+test("planLines: names the repo, both secrets and exactly push + tag; no value", T, () => {
   const text = planLines().join("\n");
-  assert.ok(text.includes(REPO) && text.includes(SECRET_NAME));
+  assert.ok(text.includes(REPO) && text.includes("site_deploy_token") && text.includes("site_deploy_key"));
   assert.ok(text.includes("push, tag"));
-  assert.ok(!text.includes("github_pat_"));
+  assert.ok(!text.includes("github_pat_") && !text.includes("BEGIN"));
 });
 
-test("storeSecret: creates the secret with events exactly push + tag and no image filter", T, async () => {
+test("storeSecrets: stores exactly two secrets, each with events exactly push + tag and no image filter", T, async () => {
   const m = mock();
-  const out = await storeSecret(WP, GH, m.fetch);
-  const post = m.calls.find((c) => c.method === "POST");
-  assert.deepEqual(post?.body, { name: "site_deploy_token", value: GH, events: ["push", "tag"], images: [] });
+  const out = await storeSecrets(WP, VALUES, m.fetch);
+  const writes = m.calls.filter((c) => c.method === "POST" || c.method === "PATCH");
+  assert.equal(writes.length, 2);
+  assert.deepEqual(writes.map((w) => w.body?.name).sort(), ["site_deploy_key", "site_deploy_token"]);
+  for (const w of writes) {
+    assert.deepEqual(w.body?.events, ["push", "tag"]);
+    assert.deepEqual(w.body?.images, []);
+  }
   assert.deepEqual([...EVENTS], ["push", "tag"]);
+  assert.deepEqual([...SECRET_NAMES], ["site_deploy_token", "site_deploy_key"]);
+  assert.equal(m.secrets.length, 2);
   assert.equal(out.at(-1), "done");
-  assert.match(out[0] ?? "", /created site_deploy_token for Tealbrick\/opt2-tealbrick-website \(events push, tag\)/);
 });
 
-test("storeSecret: an existing secret is updated (PATCH), not duplicated", T, async () => {
+test("storeSecrets: existing secrets are updated (PATCH), not duplicated, and the events are reset", T, async () => {
   const m = mock({ secrets: [{ name: "site_deploy_token", events: ["push", "tag", "pull_request"], images: [] }] });
-  const out = await storeSecret(WP, GH, m.fetch);
-  assert.ok(m.calls.some((c) => c.method === "PATCH"));
-  assert.ok(!m.calls.some((c) => c.method === "POST"));
-  assert.deepEqual(m.secrets[0]?.events, ["push", "tag"]);
-  assert.match(out[0] ?? "", /^updated /);
+  const out = await storeSecrets(WP, VALUES, m.fetch);
+  assert.equal(m.calls.filter((c) => c.method === "PATCH").length, 1);
+  assert.equal(m.calls.filter((c) => c.method === "POST").length, 1);
+  assert.deepEqual(m.secrets.find((s) => s.name === "site_deploy_token")?.events, ["push", "tag"]);
+  assert.match(out[0] ?? "", /^updated site_deploy_token/);
 });
 
-test("storeSecret: the value appears in no output line, no URL and only in the one write body", T, async () => {
+test("storeSecrets: no token or key text in any output line or URL; each value is in exactly one request body", T, async () => {
   const m = mock({ secrets: [{ name: "tb_release_token", events: ["manual", "tag"] }] });
-  const out = await storeSecret(WP, GH, m.fetch);
-  assert.ok(!out.join("\n").includes(GH));
-  assert.match(out[1] ?? "", /secret names of .*: site_deploy_token, tb_release_token/);
-  for (const c of m.calls) assert.ok(!c.path.includes(GH), "no value in a URL");
-  const withValue = m.calls.filter((c) => JSON.stringify(c.body ?? {}).includes(GH));
-  assert.equal(withValue.length, 1);
-  assert.ok(withValue[0]?.method === "POST" || withValue[0]?.method === "PATCH");
-  for (const c of m.calls) assert.equal(c.auth, `Bearer ${WP.token}`, "the GitHub value is never an Authorization header");
+  const out = await storeSecrets(WP, VALUES, m.fetch);
+  const text = out.join("\n");
+  assert.ok(!text.includes(GH) && !text.includes("BEGIN OPENSSH") && !text.includes(KEY.split("\n")[1] as string));
+  assert.match(out.at(-2) ?? "", /secret names of .*: site_deploy_key, site_deploy_token, tb_release_token/);
+  for (const c of m.calls) assert.ok(!c.path.includes(GH) && !c.path.includes("OPENSSH"), "no value in a URL");
+  assert.equal(m.calls.filter((c) => JSON.stringify(c.body ?? {}).includes(GH)).length, 1);
+  assert.equal(m.calls.filter((c) => JSON.stringify(c.body ?? {}).includes("BEGIN OPENSSH")).length, 1);
+  for (const c of m.calls) assert.equal(c.auth, `Bearer ${WP.token}`);
 });
 
-test("storeSecret: the verification lists names only and never reads a value back", T, async () => {
+test("storeSecrets: verification reads names and events only and deletes nothing", T, async () => {
   const m = mock();
-  await storeSecret(WP, GH, m.fetch);
-  const reads = m.calls.filter((c) => c.method === "GET" && c.path.includes("/secrets"));
-  assert.ok(reads.length >= 1);
+  await storeSecrets(WP, VALUES, m.fetch);
+  assert.ok(m.calls.some((c) => c.method === "GET" && c.path.endsWith("/secrets")));
   assert.ok(m.calls.every((c) => c.method !== "DELETE"));
 });
 
-test("storeSecret: refuses when Woodpecker keeps other events than push + tag", T, async () => {
+test("storeSecrets: refuses when Woodpecker keeps other events than push + tag, naming the secret and not the value", T, async () => {
   const m = mock({ storeEvents: ["push", "tag", "pull_request"] });
   await assert.rejects(
-    () => storeSecret(WP, GH, m.fetch),
-    (e: Error) => /must have exactly \[push, tag\]/.test(e.message) && !e.message.includes(GH),
+    () => storeSecrets(WP, VALUES, m.fetch),
+    (e: Error) => /site_deploy_token has the events .* must have exactly \[push, tag\]/.test(e.message) && !e.message.includes(GH),
   );
 });
 
-test("storeSecret: an unknown repo gives a clear error and writes nothing", T, async () => {
+test("storeSecrets: an unknown repo gives a clear error and writes nothing", T, async () => {
   const m = mock({ lookup: {} });
-  await assert.rejects(() => storeSecret(WP, GH, m.fetch), /not in Woodpecker/);
+  await assert.rejects(() => storeSecrets(WP, VALUES, m.fetch), /not in Woodpecker/);
   assert.ok(m.calls.every((c) => c.method === "GET"));
 });
 
-test("storeSecret: falls back to the old owner name Woodpecker may still use", T, async () => {
+test("storeSecrets: falls back to the old owner name Woodpecker may still use", T, async () => {
   const m = mock({ lookup: { "Martin-Atrin/opt2-tealbrick-website": 42 } });
-  const out = await storeSecret(WP, GH, m.fetch);
-  assert.equal(out.at(-1), "done");
+  assert.equal((await storeSecrets(WP, VALUES, m.fetch)).at(-1), "done");
 });
 
-test("storeSecret: a Woodpecker failure and a network error carry no token", T, async () => {
+test("storeSecrets: a Woodpecker failure and a network error carry no token and no key", T, async () => {
   const failing = (async (input: string | URL | Request, init?: RequestInit) => {
     const u = new URL(String(input));
     if (u.pathname.startsWith("/api/repos/lookup/")) return json(200, { id: 42 });
@@ -146,14 +194,15 @@ test("storeSecret: a Woodpecker failure and a network error carry no token", T, 
     return json(500, { message: `boom ${GH}` });
   }) as typeof fetch;
   await assert.rejects(
-    () => storeSecret(WP, GH, failing),
+    () => storeSecrets(WP, VALUES, failing),
     (e: Error) => /HTTP 500/.test(e.message) && !e.message.includes(GH),
   );
   const down = (async () => {
-    throw new Error(`connect refused ${GH} ${WP.token}`);
+    throw new Error(`connect refused ${GH} ${WP.token} ${KEY}`);
   }) as typeof fetch;
   await assert.rejects(
-    () => storeSecret(WP, GH, down),
-    (e: Error) => !e.message.includes(GH) && !e.message.includes(WP.token),
+    () => storeSecrets(WP, VALUES, down),
+    (e: Error) =>
+      !e.message.includes(GH) && !e.message.includes(WP.token) && !e.message.includes("OPENSSH") && !e.message.includes(KEY.split("\n")[1] as string),
   );
 });
