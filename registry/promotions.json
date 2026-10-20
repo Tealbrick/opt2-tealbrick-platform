@@ -238,5 +238,25 @@
         "bridge": "0.1.31"
       }
     }
+  },
+  {
+    "product": "connect",
+    "version": "0.6.1",
+    "devReleaseId": "rel_01M5C1TDJMG0PQZ9KV21ZQAPH4",
+    "promotedAt": "2026-10-20T23:59:00Z",
+    "by": "connect-lead",
+    "decision": "C295",
+    "expedited": true,
+    "incident": "INC-20261020-01",
+    "evidence": {
+      "soakStart": "2026-10-20T23:00:00Z",
+      "soakEnd": "2026-10-20T23:59:00Z",
+      "workspace": "qa1",
+      "qaRun": "PLACEHOLDER — Coordinator fills: coordination/qa/VERDICTS.md Connect 0.6.1 roll on qa1 (0.6.0 plan + 0.6.1 delta) QA verdict line",
+      "platform": {
+        "core": "d9eb0675ee1bdbd5909b1d0f448dfcc9f2a7f971",
+        "bridge": "0.1.31"
+      }
+    }
   }
 ]
