@@ -1,4 +1,4 @@
-# opt2 CI standard (template ci-v9.17)
+# opt2 CI standard (template ci-v9.18)
 
 One Woodpecker pipeline for every opt2 repo. It is an enforced standard, not a convention:
 every repo's `.woodpecker/ci.yaml` is a byte-identical copy of `ci/woodpecker/ci.yaml`, and the
@@ -194,6 +194,8 @@ Never run a global `docker/podman system prune` on the CI host (shared daemon).
 4. Raise `ci/MIN_TEMPLATE` by a separate PR only after every repo in `OPT2_REPOS` runs the new template (`template-audit` shows it).
 
 ## Template history (newest first)
+ci-v9.18 (C274): `release-record` and the registry-sync signer load `@opt2-tealbrick/manifest` 0.1.30 with `@opt2-tealbrick/spec` 0.1.57 (both sha512-pinned on the dist host; ajv 8.18.0 from the registry). Manifest 0.1.30 knows the spec 0.1.57 `events` field (MANIFEST §16, M-EV-1..4), so an app release that declares events validates in its own pipeline and in the signer; Core re-pins separately, and such a manifest needs bridge ≥ 0.2.7 (`requiredBridgeVersion`). Dry run before the change: all 170 app releases in the signed index (stable + dev) re-validate under 0.1.30 with an unchanged `manifestDigest`. Steps unchanged; `MIN_TEMPLATE` stays `ci-v9.9` (apps adopt ci-v9.18 when they declare events).
+
 ci-v9.17 (L68): boot smoke of the built miniapp. The `pre-release` step gains a second command, `boot-smoke` (kind miniapp only): it starts the built entry with a minimal env and requires a healthy health answer (HTTP 200, same version, status `ok` or `needs_keys`) for 5 s after the first one, an alive process and a complete UI import map. New optional field `bootSmoke` in `tealbrick-ci.json` (the only opt-out: reason + expiry at most 90 days). The release templates change only in the template id. `MIN_TEMPLATE` is unchanged. **Migration:** a repo re-runs `adopt`; a miniapp whose built output does not boot now fails its pipeline. Proof on a real Woodpecker run (fleet adopter) before the tag (L65).
 
 ci-v9.14 (C262): OSV vulnerability scan in the standard pipeline: steps `osv-scan` (osv-scanner v2.6.0 pinned by digest, lockfiles only, no secret) and `osv-check` (`node .tb-ci/tb-ci.ts osv-check`, fails on HIGH/CRITICAL/unknown-severity vulnerabilities), both beside `install`; `pre-release` waits for `osv-check`. `setup` writes `.tb-ci/osv-lockfiles`. New optional field `osvIgnore` in `tealbrick-ci.json` (id, reason, expires; at most 90 days; see "Vulnerability scan"). The release templates change only in the template id. **Migration:** a repo re-runs `node ci/tb-ci.ts adopt ../opt2-tealbrick-<name> --kind <kind>` and commits to get the steps; from then its pipeline can go red on a known vulnerability, so it fixes the dependency or adds an `osvIgnore` entry. The field exists only in the ci-v9.14 runner; an older runner refuses it as an unknown field, so add it only after `adopt`. Repos that stay on ci-v9.13 keep working. `MIN_TEMPLATE` stays `ci-v9.9`.
