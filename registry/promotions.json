@@ -1,282 +1,282 @@
 [
- {
-  "product": "knowledge",
-  "version": "0.1.21",
-  "devReleaseId": "rel_01M53J6KEH25HCFC5ZQHXNF7WC",
-  "promotedAt": "2026-10-18T00:35:35Z",
-  "by": "contracts-platform-lead",
-  "decision": "C228",
-  "evidence": {
-   "soakStart": "2026-10-17T00:10:14.030Z",
-   "soakEnd": "2026-10-18T00:10:15Z",
-   "workspace": "qa1",
-   "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z on qa1 (0 S1, 0 S2)",
-   "platform": {
-    "core": "e69f7840d07aadf560ce5eaca15d274e7364fc3e",
-    "bridge": "0.1.31"
-   }
+  {
+    "product": "knowledge",
+    "version": "0.1.21",
+    "devReleaseId": "rel_01M53J6KEH25HCFC5ZQHXNF7WC",
+    "promotedAt": "2026-10-18T00:35:35Z",
+    "by": "contracts-platform-lead",
+    "decision": "C228",
+    "evidence": {
+      "soakStart": "2026-10-17T00:10:14.030Z",
+      "soakEnd": "2026-10-18T00:10:15Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z on qa1 (0 S1, 0 S2)",
+      "platform": {
+        "core": "e69f7840d07aadf560ce5eaca15d274e7364fc3e",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "kanban",
+    "version": "0.1.13",
+    "devReleaseId": "rel_01M53J7T6S55PQ69CE3WS9TAKD",
+    "promotedAt": "2026-10-18T00:35:35Z",
+    "by": "contracts-platform-lead",
+    "decision": "C221",
+    "evidence": {
+      "soakStart": "2026-10-17T00:13:12.701Z",
+      "soakEnd": "2026-10-18T00:13:13Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z on qa1 (0 S1, 0 S2)",
+      "platform": {
+        "core": "e69f7840d07aadf560ce5eaca15d274e7364fc3e",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "inbox",
+    "version": "0.2.9",
+    "devReleaseId": "rel_01M53J8AYSXBXFMYMKGMJS69Y0",
+    "promotedAt": "2026-10-18T00:35:35Z",
+    "by": "contracts-platform-lead",
+    "decision": "C221",
+    "evidence": {
+      "soakStart": "2026-10-17T00:18:09.548Z",
+      "soakEnd": "2026-10-18T00:18:10Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z on qa1 (0 S1, 0 S2)",
+      "platform": {
+        "core": "e69f7840d07aadf560ce5eaca15d274e7364fc3e",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "rules",
+    "version": "0.2.12",
+    "devReleaseId": "rel_01M53J82BWVEDXND8YX8F2MJKT",
+    "promotedAt": "2026-10-18T00:35:35Z",
+    "by": "contracts-platform-lead",
+    "decision": "C221",
+    "evidence": {
+      "soakStart": "2026-10-17T00:23:09.399Z",
+      "soakEnd": "2026-10-18T00:23:10Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z on qa1 (0 S1, 0 S2)",
+      "platform": {
+        "core": "e69f7840d07aadf560ce5eaca15d274e7364fc3e",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "evolution",
+    "version": "0.2.12",
+    "devReleaseId": "rel_01M53J8P7F36EMG1M7NA48FHV3",
+    "promotedAt": "2026-10-18T00:35:35Z",
+    "by": "contracts-platform-lead",
+    "decision": "C221",
+    "evidence": {
+      "soakStart": "2026-10-17T00:28:11.589Z",
+      "soakEnd": "2026-10-18T00:28:12Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z on qa1 (0 S1, 0 S2)",
+      "platform": {
+        "core": "e69f7840d07aadf560ce5eaca15d274e7364fc3e",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "connect",
+    "version": "0.5.11",
+    "devReleaseId": "rel_01M53J795YXGTCQZFFHBE671EM",
+    "promotedAt": "2026-10-18T00:35:35Z",
+    "by": "contracts-platform-lead",
+    "decision": "C221",
+    "evidence": {
+      "soakStart": "2026-10-17T00:33:09.521Z",
+      "soakEnd": "2026-10-18T00:33:10Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z on qa1 (0 S1, 0 S2)",
+      "platform": {
+        "core": "e69f7840d07aadf560ce5eaca15d274e7364fc3e",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "bridge",
+    "version": "0.1.31",
+    "devReleaseId": "rel_01M53BAEQSGKVVY4PRM2VE6FBF",
+    "promotedAt": "2026-10-19T05:32:34Z",
+    "by": "contracts-platform-lead",
+    "decision": "C221",
+    "evidence": {
+      "soakStart": "2026-10-16T21:58:13Z",
+      "soakEnd": "2026-10-18T21:58:13Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z (0 S1, 0 S2) + 2026-10-18 qa1 app QA (inbox 0.3.0, evolution 0.2.13, fleet 0.2.0 PASS), all on qa1 bridge 0.1.31; F121 was Core (closed 29ae2fe)",
+      "platform": {
+        "core": "6a17c9b66a8c38ce983ce5ac0ed73b4e65bc011c",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "inbox",
+    "version": "0.3.0",
+    "devReleaseId": "rel_01M56RDMDNTQQQAWEZ3KV4D91S",
+    "promotedAt": "2026-10-19T05:54:00Z",
+    "by": "coordinator",
+    "decision": "C221",
+    "evidence": {
+      "soakStart": "2026-10-18T05:53:19Z",
+      "soakEnd": "2026-10-19T05:53:19Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — Inbox 0.3.0 regression on qa1, 2026-10-18 06:05–06:22Z (QA lead): PASS, 0 findings",
+      "platform": {
+        "core": "6a17c9b66a8c38ce983ce5ac0ed73b4e65bc011c",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "evolution",
+    "version": "0.2.13",
+    "devReleaseId": "rel_01M56VH3QJNCY04HGTG2RT7Z3G",
+    "promotedAt": "2026-10-19T07:04:20Z",
+    "by": "coordinator",
+    "decision": "C221",
+    "evidence": {
+      "soakStart": "2026-10-18T07:03:31Z",
+      "soakEnd": "2026-10-19T07:03:31Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — Evolution 0.2.13 roll + A1–A4 + R3-1 repro on qa1, 2026-10-18 07:00–07:22Z (QA lead): PASS, 0 findings",
+      "platform": {
+        "core": "6a17c9b66a8c38ce983ce5ac0ed73b4e65bc011c",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "rules",
+    "version": "0.3.1",
+    "devReleaseId": "rel_01M56X5GGWQ2MMRGCZBV786NB8",
+    "promotedAt": "2026-10-19T07:32:21Z",
+    "by": "coordinator",
+    "decision": "C221",
+    "evidence": {
+      "soakStart": "2026-10-18T07:28:10Z",
+      "soakEnd": "2026-10-19T07:28:10Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — Rules 0.3.1 R30-8 + R30-2/4/7 on qa1 (no roll), 2026-10-19 05:36–05:45Z (QA lead): PASS, 0 findings; R30-1/3/5/6 from the 0.3.0 run",
+      "platform": {
+        "core": "6a17c9b66a8c38ce983ce5ac0ed73b4e65bc011c",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "fleet",
+    "version": "0.2.1",
+    "devReleaseId": "rel_01M56WND573TJE65ZQX6665XRT",
+    "promotedAt": "2026-10-19T08:36:02Z",
+    "by": "coordinator",
+    "decision": "C278",
+    "expedited": true,
+    "incident": "INC-20261019-01",
+    "evidence": {
+      "soakStart": "2026-10-19T05:53:07Z",
+      "soakEnd": "2026-10-19T08:36:02Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — Governance (fleet) 0.2.1 roll + AC-11/12/13, AC-10.1, AC-2, AC-4 on qa1, 2026-10-19 05:47–06:03Z (QA lead): PASS, 0 findings; + QA health re-read 2026-10-19T08:35:45Z (INC-20261019-01 expedited check, VERDICTS.md): running, health ok, lastUpdate unchanged, no rollback",
+      "platform": {
+        "core": "07cf8e5a66b857c723803c0d2c6c402a64b7e486",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "fleet",
+    "version": "0.2.3",
+    "devReleaseId": "rel_01M59QGB934DWRFDWQ6F0S8B7V",
+    "promotedAt": "2026-10-19T09:42:18Z",
+    "by": "coordinator",
+    "decision": "C284",
+    "expedited": true,
+    "incident": "INC-20261019-02",
+    "evidence": {
+      "soakStart": "2026-10-19T09:28:09Z",
+      "soakEnd": "2026-10-19T09:42:18Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — Governance (fleet) 0.2.3 roll + AC-14, AC-10.1, AC-11.2, AC-12.4, AC-4 on qa1, 2026-10-19 09:24–09:41Z (QA lead): PASS, 0 new findings; QA-GOV022-1 closed (0.2.3 starts and stays healthy)",
+      "platform": {
+        "core": "07cf8e5a66b857c723803c0d2c6c402a64b7e486",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "connect",
+    "version": "0.5.12",
+    "devReleaseId": "rel_01M59YM7V8PF5EMP0Y4PA0EV0F",
+    "promotedAt": "2026-10-20T01:10:54Z",
+    "by": "connect-lead",
+    "decision": "C284",
+    "expedited": true,
+    "incident": "INC-20261019-03",
+    "evidence": {
+      "soakStart": "2026-10-20T00:53:11Z",
+      "soakEnd": "2026-10-20T01:09:47Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — Connect 0.5.12 roll on qa1, 2026-10-20 (QA lead): PASS rows 1–8, 0 S1/S2/S3; G7 permuted-key replay ran once; Refresh-tools addendum shown",
+      "platform": {
+        "core": "d9eb0675ee1bdbd5909b1d0f448dfcc9f2a7f971",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "connect",
+    "version": "0.6.1",
+    "devReleaseId": "rel_01M5C1TDJMG0PQZ9KV21ZQAPH4",
+    "promotedAt": "2026-10-20T07:30:00Z",
+    "by": "connect-lead",
+    "decision": "C295",
+    "expedited": true,
+    "incident": "INC-20261020-01",
+    "evidence": {
+      "soakStart": "2026-10-20T07:08:12.134Z",
+      "soakEnd": "2026-10-20T07:22:22Z",
+      "workspace": "qa1",
+      "qaRun": "qa1 2026-10-20 Connect 0.6.1 roll + rows: PASS, 0 findings (qa/VERDICTS.md); Coordinator read: migration 0015 applied (connect_tools.send_recipients), one tool-class re-sync c276c-1|catalog-0.3.0|policies-38f14a927730eda9 synced=1 failed=0; expedited C295 / INC-20261020-01",
+      "platform": {
+        "core": "12e02f12c2c2457bb93ce0fbb5b7946b13575fb4",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "knowledge",
+    "version": "0.1.24",
+    "devReleaseId": "rel_01M5DMH56CQWZVSAZ5ZPHTP6SZ",
+    "promotedAt": "2026-10-21T04:20:00Z",
+    "by": "coordinator",
+    "decision": "C296",
+    "expedited": true,
+    "incident": "INC-20261020-03",
+    "evidence": {
+      "soakStart": "2026-10-20T22:18:18.038Z",
+      "soakEnd": "2026-10-21T04:15:00Z",
+      "workspace": "qa1",
+      "qaRun": "qa1 2026-10-20 Knowledge 0.1.23→0.1.24 update PASS (no rollback, tools 95/69 gb_* unchanged, recall via engine) + fresh 0.1.24 install PASS + C296b keyless 0.1.21→0.1.24 PASS + INFO-8/QA-C296-5 live PASS (qa/VERDICTS.md); claim gate knowledge#15; expedited C296 / INC-20261020-03 on Martin GO",
+      "platform": {
+        "core": "594bbb8c633fe5899f657971e97eca916e01b0df",
+        "bridge": "0.1.31"
+      }
+    }
   }
- },
- {
-  "product": "kanban",
-  "version": "0.1.13",
-  "devReleaseId": "rel_01M53J7T6S55PQ69CE3WS9TAKD",
-  "promotedAt": "2026-10-18T00:35:35Z",
-  "by": "contracts-platform-lead",
-  "decision": "C221",
-  "evidence": {
-   "soakStart": "2026-10-17T00:13:12.701Z",
-   "soakEnd": "2026-10-18T00:13:13Z",
-   "workspace": "qa1",
-   "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z on qa1 (0 S1, 0 S2)",
-   "platform": {
-    "core": "e69f7840d07aadf560ce5eaca15d274e7364fc3e",
-    "bridge": "0.1.31"
-   }
-  }
- },
- {
-  "product": "inbox",
-  "version": "0.2.9",
-  "devReleaseId": "rel_01M53J8AYSXBXFMYMKGMJS69Y0",
-  "promotedAt": "2026-10-18T00:35:35Z",
-  "by": "contracts-platform-lead",
-  "decision": "C221",
-  "evidence": {
-   "soakStart": "2026-10-17T00:18:09.548Z",
-   "soakEnd": "2026-10-18T00:18:10Z",
-   "workspace": "qa1",
-   "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z on qa1 (0 S1, 0 S2)",
-   "platform": {
-    "core": "e69f7840d07aadf560ce5eaca15d274e7364fc3e",
-    "bridge": "0.1.31"
-   }
-  }
- },
- {
-  "product": "rules",
-  "version": "0.2.12",
-  "devReleaseId": "rel_01M53J82BWVEDXND8YX8F2MJKT",
-  "promotedAt": "2026-10-18T00:35:35Z",
-  "by": "contracts-platform-lead",
-  "decision": "C221",
-  "evidence": {
-   "soakStart": "2026-10-17T00:23:09.399Z",
-   "soakEnd": "2026-10-18T00:23:10Z",
-   "workspace": "qa1",
-   "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z on qa1 (0 S1, 0 S2)",
-   "platform": {
-    "core": "e69f7840d07aadf560ce5eaca15d274e7364fc3e",
-    "bridge": "0.1.31"
-   }
-  }
- },
- {
-  "product": "evolution",
-  "version": "0.2.12",
-  "devReleaseId": "rel_01M53J8P7F36EMG1M7NA48FHV3",
-  "promotedAt": "2026-10-18T00:35:35Z",
-  "by": "contracts-platform-lead",
-  "decision": "C221",
-  "evidence": {
-   "soakStart": "2026-10-17T00:28:11.589Z",
-   "soakEnd": "2026-10-18T00:28:12Z",
-   "workspace": "qa1",
-   "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z on qa1 (0 S1, 0 S2)",
-   "platform": {
-    "core": "e69f7840d07aadf560ce5eaca15d274e7364fc3e",
-    "bridge": "0.1.31"
-   }
-  }
- },
- {
-  "product": "connect",
-  "version": "0.5.11",
-  "devReleaseId": "rel_01M53J795YXGTCQZFFHBE671EM",
-  "promotedAt": "2026-10-18T00:35:35Z",
-  "by": "contracts-platform-lead",
-  "decision": "C221",
-  "evidence": {
-   "soakStart": "2026-10-17T00:33:09.521Z",
-   "soakEnd": "2026-10-18T00:33:10Z",
-   "workspace": "qa1",
-   "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z on qa1 (0 S1, 0 S2)",
-   "platform": {
-    "core": "e69f7840d07aadf560ce5eaca15d274e7364fc3e",
-    "bridge": "0.1.31"
-   }
-  }
- },
- {
-  "product": "bridge",
-  "version": "0.1.31",
-  "devReleaseId": "rel_01M53BAEQSGKVVY4PRM2VE6FBF",
-  "promotedAt": "2026-10-19T05:32:34Z",
-  "by": "contracts-platform-lead",
-  "decision": "C221",
-  "evidence": {
-   "soakStart": "2026-10-16T21:58:13Z",
-   "soakEnd": "2026-10-18T21:58:13Z",
-   "workspace": "qa1",
-   "qaRun": "coordination/qa/VERDICTS.md — RS-5 re-run 2026-10-17 09:43–10:44Z (0 S1, 0 S2) + 2026-10-18 qa1 app QA (inbox 0.3.0, evolution 0.2.13, fleet 0.2.0 PASS), all on qa1 bridge 0.1.31; F121 was Core (closed 29ae2fe)",
-   "platform": {
-    "core": "6a17c9b66a8c38ce983ce5ac0ed73b4e65bc011c",
-    "bridge": "0.1.31"
-   }
-  }
- },
- {
-  "product": "inbox",
-  "version": "0.3.0",
-  "devReleaseId": "rel_01M56RDMDNTQQQAWEZ3KV4D91S",
-  "promotedAt": "2026-10-19T05:54:00Z",
-  "by": "coordinator",
-  "decision": "C221",
-  "evidence": {
-   "soakStart": "2026-10-18T05:53:19Z",
-   "soakEnd": "2026-10-19T05:53:19Z",
-   "workspace": "qa1",
-   "qaRun": "coordination/qa/VERDICTS.md — Inbox 0.3.0 regression on qa1, 2026-10-18 06:05–06:22Z (QA lead): PASS, 0 findings",
-   "platform": {
-    "core": "6a17c9b66a8c38ce983ce5ac0ed73b4e65bc011c",
-    "bridge": "0.1.31"
-   }
-  }
- },
- {
-  "product": "evolution",
-  "version": "0.2.13",
-  "devReleaseId": "rel_01M56VH3QJNCY04HGTG2RT7Z3G",
-  "promotedAt": "2026-10-19T07:04:20Z",
-  "by": "coordinator",
-  "decision": "C221",
-  "evidence": {
-   "soakStart": "2026-10-18T07:03:31Z",
-   "soakEnd": "2026-10-19T07:03:31Z",
-   "workspace": "qa1",
-   "qaRun": "coordination/qa/VERDICTS.md — Evolution 0.2.13 roll + A1–A4 + R3-1 repro on qa1, 2026-10-18 07:00–07:22Z (QA lead): PASS, 0 findings",
-   "platform": {
-    "core": "6a17c9b66a8c38ce983ce5ac0ed73b4e65bc011c",
-    "bridge": "0.1.31"
-   }
-  }
- },
- {
-  "product": "rules",
-  "version": "0.3.1",
-  "devReleaseId": "rel_01M56X5GGWQ2MMRGCZBV786NB8",
-  "promotedAt": "2026-10-19T07:32:21Z",
-  "by": "coordinator",
-  "decision": "C221",
-  "evidence": {
-   "soakStart": "2026-10-18T07:28:10Z",
-   "soakEnd": "2026-10-19T07:28:10Z",
-   "workspace": "qa1",
-   "qaRun": "coordination/qa/VERDICTS.md — Rules 0.3.1 R30-8 + R30-2/4/7 on qa1 (no roll), 2026-10-19 05:36–05:45Z (QA lead): PASS, 0 findings; R30-1/3/5/6 from the 0.3.0 run",
-   "platform": {
-    "core": "6a17c9b66a8c38ce983ce5ac0ed73b4e65bc011c",
-    "bridge": "0.1.31"
-   }
-  }
- },
- {
-  "product": "fleet",
-  "version": "0.2.1",
-  "devReleaseId": "rel_01M56WND573TJE65ZQX6665XRT",
-  "promotedAt": "2026-10-19T08:36:02Z",
-  "by": "coordinator",
-  "decision": "C278",
-  "expedited": true,
-  "incident": "INC-20261019-01",
-  "evidence": {
-   "soakStart": "2026-10-19T05:53:07Z",
-   "soakEnd": "2026-10-19T08:36:02Z",
-   "workspace": "qa1",
-   "qaRun": "coordination/qa/VERDICTS.md — Governance (fleet) 0.2.1 roll + AC-11/12/13, AC-10.1, AC-2, AC-4 on qa1, 2026-10-19 05:47–06:03Z (QA lead): PASS, 0 findings; + QA health re-read 2026-10-19T08:35:45Z (INC-20261019-01 expedited check, VERDICTS.md): running, health ok, lastUpdate unchanged, no rollback",
-   "platform": {
-    "core": "07cf8e5a66b857c723803c0d2c6c402a64b7e486",
-    "bridge": "0.1.31"
-   }
-  }
- },
- {
-  "product": "fleet",
-  "version": "0.2.3",
-  "devReleaseId": "rel_01M59QGB934DWRFDWQ6F0S8B7V",
-  "promotedAt": "2026-10-19T09:42:18Z",
-  "by": "coordinator",
-  "decision": "C284",
-  "expedited": true,
-  "incident": "INC-20261019-02",
-  "evidence": {
-   "soakStart": "2026-10-19T09:28:09Z",
-   "soakEnd": "2026-10-19T09:42:18Z",
-   "workspace": "qa1",
-   "qaRun": "coordination/qa/VERDICTS.md — Governance (fleet) 0.2.3 roll + AC-14, AC-10.1, AC-11.2, AC-12.4, AC-4 on qa1, 2026-10-19 09:24–09:41Z (QA lead): PASS, 0 new findings; QA-GOV022-1 closed (0.2.3 starts and stays healthy)",
-   "platform": {
-    "core": "07cf8e5a66b857c723803c0d2c6c402a64b7e486",
-    "bridge": "0.1.31"
-   }
-  }
- },
- {
-  "product": "connect",
-  "version": "0.5.12",
-  "devReleaseId": "rel_01M59YM7V8PF5EMP0Y4PA0EV0F",
-  "promotedAt": "2026-10-20T01:10:54Z",
-  "by": "connect-lead",
-  "decision": "C284",
-  "expedited": true,
-  "incident": "INC-20261019-03",
-  "evidence": {
-   "soakStart": "2026-10-20T00:53:11Z",
-   "soakEnd": "2026-10-20T01:09:47Z",
-   "workspace": "qa1",
-   "qaRun": "coordination/qa/VERDICTS.md — Connect 0.5.12 roll on qa1, 2026-10-20 (QA lead): PASS rows 1–8, 0 S1/S2/S3; G7 permuted-key replay ran once; Refresh-tools addendum shown",
-   "platform": {
-    "core": "d9eb0675ee1bdbd5909b1d0f448dfcc9f2a7f971",
-    "bridge": "0.1.31"
-   }
-  }
- },
- {
-  "product": "connect",
-  "version": "0.6.1",
-  "devReleaseId": "rel_01M5C1TDJMG0PQZ9KV21ZQAPH4",
-  "promotedAt": "2026-10-20T07:30:00Z",
-  "by": "connect-lead",
-  "decision": "C295",
-  "expedited": true,
-  "incident": "INC-20261020-01",
-  "evidence": {
-   "soakStart": "2026-10-20T07:08:12.134Z",
-   "soakEnd": "2026-10-20T07:22:22Z",
-   "workspace": "qa1",
-   "qaRun": "qa1 2026-10-20 Connect 0.6.1 roll + rows: PASS, 0 findings (qa/VERDICTS.md); Coordinator read: migration 0015 applied (connect_tools.send_recipients), one tool-class re-sync c276c-1|catalog-0.3.0|policies-38f14a927730eda9 synced=1 failed=0; expedited C295 / INC-20261020-01",
-   "platform": {
-    "core": "12e02f12c2c2457bb93ce0fbb5b7946b13575fb4",
-    "bridge": "0.1.31"
-   }
-  }
- },
- {
-  "product": "knowledge",
-  "version": "0.1.24",
-  "devReleaseId": "rel_01M5DMH56CQWZVSAZ5ZPHTP6SZ",
-  "promotedAt": "2026-10-21T04:20:00Z",
-  "by": "coordinator",
-  "decision": "C296",
-  "expedited": true,
-  "incident": "INC-20261020-03",
-  "evidence": {
-   "soakStart": "2026-10-20T22:18:18.038Z",
-   "soakEnd": "2026-10-21T04:15:00Z",
-   "workspace": "qa1",
-   "qaRun": "qa1 2026-10-20 Knowledge 0.1.23→0.1.24 update PASS (no rollback, tools 95/69 gb_* unchanged, recall via engine) + fresh 0.1.24 install PASS + C296b keyless 0.1.21→0.1.24 PASS + INFO-8/QA-C296-5 live PASS (qa/VERDICTS.md); claim gate knowledge#15; expedited C296 / INC-20261020-03 on Martin GO",
-   "platform": {
-    "core": "594bbb8c633fe5899f657971e97eca916e01b0df",
-    "bridge": "0.1.31"
-   }
-  }
- }
 ]
