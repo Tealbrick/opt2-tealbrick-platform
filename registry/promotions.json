@@ -258,5 +258,25 @@
         "bridge": "0.1.31"
       }
     }
+  },
+  {
+    "product": "knowledge",
+    "version": "0.1.24",
+    "devReleaseId": "rel_01M5DMH56CQWZVSAZ5ZPHTP6SZ",
+    "promotedAt": "2026-10-21T04:20:00Z",
+    "by": "coordinator",
+    "decision": "C296",
+    "expedited": true,
+    "incident": "INC-20261020-03",
+    "evidence": {
+      "soakStart": "2026-10-20T22:18:18.038Z",
+      "soakEnd": "2026-10-21T04:15:00Z",
+      "workspace": "qa1",
+      "qaRun": "qa1 2026-10-20 Knowledge 0.1.23→0.1.24 update PASS (no rollback, tools 95/69 gb_* unchanged, recall via engine) + fresh 0.1.24 install PASS + C296b keyless 0.1.21→0.1.24 PASS + INFO-8/QA-C296-5 live PASS (qa/VERDICTS.md); claim gate knowledge#15; expedited C296 / INC-20261020-03 on Martin GO",
+      "platform": {
+        "core": "594bbb8c633fe5899f657971e97eca916e01b0df",
+        "bridge": "0.1.31"
+      }
+    }
   }
 ]
