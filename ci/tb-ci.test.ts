@@ -930,11 +930,30 @@ function assertHoldFamilies(m: { validateManifest(json: unknown): { ok: boolean;
   assert.equal(m.validateManifest(bad).ok, false, `${who}: an unknown hold family is still refused`);
 }
 
-test("ci-v9.4: release-record loads the pinned manifest 0.1.12 + spec 0.1.20 and accepts holdFamily outward/identity", { timeout: 180_000 }, async () => {
+/** ci-v9.18 (C274): the pinned validator accepts a manifest that declares `events` (spec 0.1.57) and refuses a `tb.` name. */
+function assertEvents(m: { validateManifest(json: unknown): { ok: boolean; errors?: unknown[] } }, specDir: string, who: string): void {
+  const good = holdFamilyManifest(specDir) as { operations: { id: string; audience: string; dynamic?: unknown }[] };
+  const op = good.operations.find((o) => o.audience === "agent" && !o.dynamic);
+  assert.ok(op, "the fixture manifest has a non-dynamic agent op");
+  const ev = {
+    name: "note.shared",
+    title: "A note was shared",
+    payloadSchema: { type: "object", properties: { noteId: { type: "string" } } },
+    visibleWith: op.id,
+    audience: "target",
+  };
+  const v = m.validateManifest({ ...good, events: [ev] });
+  assert.equal(v.ok, true, `${who}: a manifest with events must validate: ${JSON.stringify(v.errors ?? []).slice(0, 500)}`);
+  assert.equal(m.validateManifest({ ...good, events: [{ ...ev, name: "tb.hold.decided" }] }).ok, false, `${who}: a tb. event name is refused`);
+}
+
+test("ci-v9.4/ci-v9.18: release-record loads the pinned manifest 0.1.30 + spec 0.1.57, accepts holdFamily outward/identity and events", {
+  timeout: 180_000,
+}, async () => {
   const tpl = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
   const pin = (k: string) => new RegExp(`${k}: (\\S+)`).exec(tpl)?.[1] ?? "";
-  assert.match(pin("TB_MANIFEST_PKG"), /manifest-v0\.1\.12\/opt2-tealbrick-manifest-0\.1\.12\.tgz$/);
-  assert.match(pin("TB_SPEC_PKG"), /spec-v0\.1\.20\/opt2-tealbrick-spec-0\.1\.20\.tgz$/);
+  assert.match(pin("TB_MANIFEST_PKG"), /manifest-v0\.1\.30\/opt2-tealbrick-manifest-0\.1\.30\.tgz$/);
+  assert.match(pin("TB_SPEC_PKG"), /spec-v0\.1\.57\/opt2-tealbrick-spec-0\.1\.57\.tgz$/);
   const keys = ["TB_MANIFEST_PKG", "TB_MANIFEST_INTEGRITY", "TB_SPEC_PKG", "TB_SPEC_INTEGRITY", "TB_MANIFEST_MODULE"] as const;
   const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
   const work = mkdtempSync(join(tmpdir(), "tb-release-record-"));
@@ -943,8 +962,9 @@ test("ci-v9.4: release-record loads the pinned manifest 0.1.12 + spec 0.1.20 and
     for (const k of keys.slice(0, 4)) process.env[k] = pin(k);
     const m = await loadManifestPkg(work); // downloads, checks both sha512 pins, installs, reads the lockfile back
     const specDir = join(work, ".tb-ci/pkgs/node_modules/@opt2-tealbrick/spec");
-    assert.equal((JSON.parse(readFileSync(join(specDir, "package.json"), "utf8")) as { version: string }).version, "0.1.20");
+    assert.equal((JSON.parse(readFileSync(join(specDir, "package.json"), "utf8")) as { version: string }).version, "0.1.57");
     assertHoldFamilies(m, specDir, "release-record");
+    assertEvents(m, specDir, "release-record");
   } finally {
     for (const k of keys) {
       if (saved[k] === undefined) delete process.env[k];
@@ -954,20 +974,21 @@ test("ci-v9.4: release-record loads the pinned manifest 0.1.12 + spec 0.1.20 and
   }
 });
 
-test("ci-v9.4: the registry-sync signer (ops/signer lockfile) validates holdFamily outward/identity", { timeout: 180_000 }, async () => {
+test("ci-v9.4/ci-v9.18: the registry-sync signer (ops/signer lockfile) validates holdFamily outward/identity and events", { timeout: 180_000 }, async () => {
   const work = mkdtempSync(join(tmpdir(), "tb-signer-"));
   try {
     for (const f of ["package.json", "package-lock.json"]) writeFileSync(join(work, f), readFileSync(new URL(`../ops/signer/${f}`, import.meta.url)));
     // exactly what .github/workflows/registry-sync.yml runs
     execFileSync("npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: work, stdio: "pipe" });
     const nm = join(work, "node_modules/@opt2-tealbrick");
-    assert.equal((JSON.parse(readFileSync(join(nm, "manifest/package.json"), "utf8")) as { version: string }).version, "0.1.12");
-    assert.equal((JSON.parse(readFileSync(join(nm, "spec/package.json"), "utf8")) as { version: string }).version, "0.1.20");
+    assert.equal((JSON.parse(readFileSync(join(nm, "manifest/package.json"), "utf8")) as { version: string }).version, "0.1.30");
+    assert.equal((JSON.parse(readFileSync(join(nm, "spec/package.json"), "utf8")) as { version: string }).version, "0.1.57");
     const wf = readFileSync(new URL("../.github/workflows/registry-sync.yml", import.meta.url), "utf8");
     const entry = /TB_MANIFEST_MODULE: ops\/signer\/(\S+)/.exec(wf)?.[1] ?? "";
     assert.ok(entry, "the workflow points TB_MANIFEST_MODULE into ops/signer");
     const m = (await import(pathToFileURL(join(work, entry)).href)) as { validateManifest(json: unknown): { ok: boolean; errors?: unknown[] } };
     assertHoldFamilies(m, join(nm, "spec"), "signer");
+    assertEvents(m, join(nm, "spec"), "signer");
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
@@ -1226,9 +1247,9 @@ test("ci-v9.6 template: pre-release step after gen; image-check and release-reco
     "node .tb-ci/tb-ci.ts pre-release\nnode .tb-ci/tb-ci.ts boot-smoke",
     "ci-v9.17: the boot smoke runs after the preReleaseChecks, in the same step",
   );
-  assert.match(tpl.split("\n")[0] as string, /ci-v9\.17/, "current template (ci-v9.17 keeps the ci-v9.6 pre-release step)");
+  assert.match(tpl.split("\n")[0] as string, /ci-v9\.18/, "current template (ci-v9.18 keeps the ci-v9.6 pre-release step)");
   const wf = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(wf, /TB_CI_REF: ci-v9\.17/);
+  assert.match(wf, /TB_CI_REF: ci-v9\.18/);
   const runner = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
   const build = runner.slice(runner.indexOf("async function cmdGhBuild"), runner.indexOf("async function cmdGhPublish"));
   assert.ok(build.indexOf("runPreReleaseChecks(cfg, root)") > 0, "gh-build runs the checks on the tag");
@@ -2242,7 +2263,7 @@ test("ci-v9.10 C222: a published asset is never replaced", () => {
 test("ci-v9.10 C222 template: release.yaml = build without secret, publish runs no repo code and alone reads the secret", () => {
   const rel = readFileSync(new URL("./woodpecker/release.yaml", import.meta.url), "utf8");
   const ci = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
-  assert.match(rel.split("\n")[0] as string, /template ci-v9\.17/);
+  assert.match(rel.split("\n")[0] as string, /template ci-v9\.18/);
   assert.match(rel, /GENERATED from Tealbrick\/opt2-tealbrick-platform: ci\/woodpecker\/release\.yaml/);
   const ref = /TB_CI_REF: (\S+)/.exec(ci)?.[1];
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
@@ -2413,11 +2434,11 @@ test("ci-v9.11 C232 template: step graph, secrets per step, no secret in any ste
   assert.match(rel, /GITHUB_TOKEN:\n {8}from_secret: tb_release_token\n/);
   // same template id and runner sha256 everywhere
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
-  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.17");
+  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.18");
   for (const m of rel.matchAll(/TB_CI_SHA256: "([^"]*)"/g)) assert.equal(m[1], sha);
   const actions = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(actions, /TB_CI_REF: ci-v9\.17/);
-  assert.match(ci, /TB_CI_REF: ci-v9\.17/);
+  assert.match(actions, /TB_CI_REF: ci-v9\.18/);
+  assert.match(ci, /TB_CI_REF: ci-v9\.18/);
   assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
 });
 
@@ -3141,7 +3162,7 @@ test("ci-v9.14 template: osv-scan after setup beside install, image pinned by di
   assert.equal(stepScript(tpl, "osv-check"), "node .tb-ci/tb-ci.ts osv-check .tb-ci/osv.json");
   // the id and the runner hash are the same in every generated file
   for (const f of ["woodpecker/ci.yaml", "woodpecker/release.yaml", "github/opt2-release.yml"])
-    assert.match(readFileSync(new URL(`./${f}`, import.meta.url), "utf8"), /ci-v9\.17/, f);
+    assert.match(readFileSync(new URL(`./${f}`, import.meta.url), "utf8"), /ci-v9\.18/, f);
   assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
   const readme = readFileSync(new URL("./README.md", import.meta.url), "utf8");
   assert.match(readme, /^ci-v9\.14 \(C262\)/m, "template history entry");

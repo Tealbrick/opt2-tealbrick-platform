@@ -1,4 +1,4 @@
-# opt2 release on Woodpecker (template ci-v9.17, C222 + C232). GENERATED from Tealbrick/opt2-tealbrick-platform: ci/woodpecker/release.yaml.
+# opt2 release on Woodpecker (template ci-v9.18, C222 + C232). GENERATED from Tealbrick/opt2-tealbrick-platform: ci/woodpecker/release.yaml.
 # Do not edit in a repo: the ci workflow's setup step fails on drift. Only in repos with "releaseOn": "woodpecker" in
 # tealbrick-ci.json (private repos: GitHub Actions do not start there without billing, C222). Same split as the Actions release:
 #   release-build      — runs repo code (install, build, pack script / npm pack, pack guard). NO secret in this step.
@@ -42,7 +42,7 @@ steps:
     image: &node node:24.21.0-bookworm@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0
     environment:
       CI: "true"
-      TB_CI_REF: ci-v9.17
+      TB_CI_REF: ci-v9.18
       TB_CI_SHA256: "e70451835c406df166a5e18739a1a28ee65b6697080307630fec9f86cbaba09c"
       NPM_CONFIG_UPDATE_NOTIFIER: "false"
       NPM_CONFIG_FUND: "false"
@@ -64,7 +64,7 @@ steps:
     depends_on: [release-image]
     environment:
       CI: "true"
-      TB_CI_REF: ci-v9.17
+      TB_CI_REF: ci-v9.18
       TB_CI_SHA256: "e70451835c406df166a5e18739a1a28ee65b6697080307630fec9f86cbaba09c"
       GHCR_TOKEN:
         from_secret: tb_ghcr_token
@@ -81,7 +81,7 @@ steps:
     depends_on: [release-build, release-image-push]
     environment:
       CI: "true"
-      TB_CI_REF: ci-v9.17
+      TB_CI_REF: ci-v9.18
       TB_CI_SHA256: "e70451835c406df166a5e18739a1a28ee65b6697080307630fec9f86cbaba09c"
       GITHUB_TOKEN:
         from_secret: tb_release_token
