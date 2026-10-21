@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-21T05:26:34.242Z",
+  "generatedAt": "2026-10-21T07:40:33.992Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -4567,6 +4567,29 @@
       "commit": "e9e8ab73b7278ec8115417f760173f41ea5bd389",
       "tag": "v0.3.0",
       "publishedAt": "2026-10-19T16:23:34.756Z"
+    },
+    {
+      "id": "rel_01M5EPF5EBB3MNZCHQE7PWY92T",
+      "product": "evolution",
+      "kind": "app",
+      "version": "0.3.0",
+      "channel": "stable",
+      "manifestDigest": "sha256:b81d853b13e04ece5546e7b13380ca2d87c89b14970c39892c57191fbcde340c",
+      "manifestUrl": "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-evolution/e9e8ab73b7278ec8115417f760173f41ea5bd389/tealbrick.manifest.json",
+      "skillsDigest": "sha256:32f9347d4a070892642788bc1c39e9ea5db5175371f4e38941798ac45745cfc3",
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-evolution@sha256:a8ff5f50c4d088acd877a9697ddc98d48a2579f09c60df8b12590e0ebee2e099",
+      "artifact": null,
+      "source": null,
+      "runtime": null,
+      "services": [],
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-evolution",
+      "commit": "e9e8ab73b7278ec8115417f760173f41ea5bd389",
+      "tag": "v0.3.0",
+      "publishedAt": "2026-10-21T07:40:32.074Z",
+      "promotedFrom": "rel_01M5AFKEK4SQJJ8K016N2DKW7W"
     },
     {
       "id": "rel_01M4R0PQ315GA2DFCNNRG1M5AP",
