@@ -278,5 +278,23 @@
         "bridge": "0.1.31"
       }
     }
+  },
+  {
+    "product": "evolution",
+    "version": "0.3.0",
+    "devReleaseId": "rel_01M5AFKEK4SQJJ8K016N2DKW7W",
+    "promotedAt": "2026-10-21T08:15:00Z",
+    "by": "coordinator",
+    "decision": "C288",
+    "evidence": {
+      "soakStart": "2026-10-20T01:18:12.188Z",
+      "soakEnd": "2026-10-21T07:33:00Z",
+      "workspace": "qa1",
+      "qaRun": "qa/VERDICTS.md 'Evolution 0.3.0 roll + Release B rows + A1–A4 on qa1' PASS; soak end read by the Coordinator 2026-10-21 ~08:10Z: running, health ok 07:33Z, lastUpdate unchanged (updated 0.2.13→0.3.0, no rollback). DEV Core changed during the soak (d9eb067→12e02f1→…→594bbb8 = live RS-8), recorded.",
+      "platform": {
+        "core": "594bbb8c633fe5899f657971e97eca916e01b0df",
+        "bridge": "0.1.31"
+      }
+    }
   }
 ]
