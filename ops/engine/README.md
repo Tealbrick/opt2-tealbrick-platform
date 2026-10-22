@@ -13,6 +13,13 @@ real box yet**; the first real runs are the S1-8 QA drills (checklist at the end
 | `upgrade.ts` | `apply --pin <engine record>` with snapshot, pull-first, health gate, verify and automatic rollback; `drill --pin` = the M6 upgrade + restore drill |
 | `box.ts` | runner, layout (`TB_ENGINE_*` env), guards |
 
+## How an engine bump goes live (end to end)
+1. Mirror the images by digest into `ghcr.io/tealbrick/mirror/*` (`crane copy <upstream>@sha256:... ghcr.io/tealbrick/mirror/<name>`; needs the ghcr write token; the packages must be public). Postgres and Redis too.
+2. PR to `registry/engines.json`: a `dev` pin (npm tarball `sha256`/`sha512` as npm serves it, the five mirror digests, `evidence.h0`). CI validates the shape.
+3. Merge: `registry-sync` (every 15 min) pulls the tarball from npm, checks it against the pin, checks the five manifests in ghcr, attaches the tarball to the platform release `engine-openship-v<ver>`, signs a `kind: engine` record. The dist mirror (every 15 min) copies the tarball to the dist host.
+4. Host agent: reads the record from the verified index, runs `upgrade.ts apply --pin` (or `drill` on a test box).
+5. After the drills pass: a `stable` pin PR with `conformance`, `restoreDrill`, `upgradeDrill` evidence (an identical dev record must already be indexed).
+
 ## Backup
 - Encrypted restic repository OFF the box (`sftp:`, `rest:`, `s3:`, `b2:`). A path on the box is refused. Install restic from the Ubuntu 24.04
   archive (`apt install restic`, 0.16.x); the host agent installs it.
