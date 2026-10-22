@@ -4,9 +4,7 @@
 // - refuses a SHA that is not on GitHub (must be pushed); records the SHA in the deployment.
 // - uses the Railway CLI login of the operator (~/.railway/config.json); prints no variable values.
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { railwayToken } from "./railway-token.ts";
 
 const PROJECT = "15297ce5-0283-4901-a408-9c802e6ac53a"; // Railway project "opt2"
 const DEV_ENVIRONMENT = "2a09b7be-6d8e-4981-a2b1-20bc7922fca5"; // production (= dev)
@@ -27,14 +25,12 @@ const envName = arg("--environment") ?? "production";
 if (!service || !repo || !/^opt2-tealbrick-[a-z0-9-]+$/.test(repo) || !sha || !/^[0-9a-f]{40}$/.test(sha))
   throw new Error("usage: --service <name> --repo opt2-tealbrick-<x> --sha <40-hex> [--dockerfile <path>] [--root <dir>]");
 
-const cfg = JSON.parse(readFileSync(join(homedir(), ".railway/config.json"), "utf8")) as { user?: { token?: string } };
-const token = cfg.user?.token;
-if (!token) throw new Error("not logged in to the Railway CLI");
+railwayToken(); // fail fast when not logged in; every request reads the current (refreshed) token
 
 async function gql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   const res = await fetch("https://backboard.railway.com/graphql/v2", {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "user-agent": "opt2-platform-deploy" },
+    headers: { authorization: `Bearer ${railwayToken()}`, "content-type": "application/json", "user-agent": "opt2-platform-deploy" },
     body: JSON.stringify({ query, variables }),
   });
   const body = (await res.json()) as { data?: T; errors?: { message: string }[] };
