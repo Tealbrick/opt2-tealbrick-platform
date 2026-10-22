@@ -57,6 +57,7 @@ import {
   engineReleases,
   engineTag,
   engineTarballUrl,
+  ensureEngineAsset,
   expectedGenFiles,
   GH_WORKFLOW_PATH,
   ghcrFind,
@@ -2204,7 +2205,7 @@ const enginePin = (over: Record<string, unknown> = {}) => ({
   images: ENGINE_ROLES.map((role, i) => ({
     role,
     image: `${ENGINE_MIRROR_NAMESPACE}/openship-${role}@sha256:${hex("0123456789abcdef"[i] as string)}`,
-    upstream: `ghcr.io/oblien/openship-${role}:0.9.3`,
+    upstream: `ghcr.io/oblien/openship-${role}:0.9.3@sha256:${hex("0123456789abcdef"[i] as string)}`,
   })),
   noticeUrl: "https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/engine-openship-v0.9.3/NOTICE",
   decision: "C308",
@@ -2251,7 +2252,13 @@ test("engine pins: every image is pinned by digest in our mirror, all five roles
   assert.throws(() => validateEngines([enginePin({ images: withImage(3, { image: `${ENGINE_MIRROR_NAMESPACE}/postgres:16-alpine` }) })]), /by digest/);
   assert.throws(() => validateEngines([enginePin({ images: withImage(1, { role: "ui" }) })]), /role must be/);
   assert.throws(() => validateEngines([enginePin({ images: withImage(1, { upstream: "docker pull x" }) })]), /upstream/);
-  assert.throws(() => validateEngines([enginePin({ images: withImage(1, { image: images[0]?.image }) })]), /reuse one image/);
+  assert.throws(() => validateEngines([enginePin({ images: withImage(1, { image: images[0]?.image, upstream: images[0]?.upstream }) })]), /reuse one image/);
+  // the upstream reference must carry a digest, and the SAME digest as the mirror (crane copy keeps digests)
+  assert.throws(() => validateEngines([enginePin({ images: withImage(1, { upstream: "ghcr.io/oblien/openship-dashboard:0.9.3" }) })]), /<repo>\[:tag\]@sha256/);
+  assert.throws(
+    () => validateEngines([enginePin({ images: withImage(1, { upstream: `ghcr.io/oblien/openship-dashboard:0.9.3@sha256:${hex("f")}` }) })]),
+    /differs from the mirror digest/,
+  );
   assert.throws(() => validateEngines([enginePin({ images: withImage(1, { note: "x" }) })]), /fields must be exactly/);
 });
 
@@ -2280,7 +2287,25 @@ test("engine pins: a stable pin needs all drill evidence and an identical dev re
   assert.equal(devRec.repo, "Tealbrick/opt2-tealbrick-platform");
   assert.equal(engineEntryProblem(devRec), null);
   // idempotent
-  assert.deepEqual(engineReleases({ releases: [devRec] }, [dev], opts), { add: [], problems: [] });
+  assert.deepEqual(engineReleases({ releases: [devRec] }, [dev], opts), { add: [], problems: [], pending: [] });
+  // dev and stable in ONE change: the stable one waits for the dev record (no red run), then follows
+  const both = engineReleases({ releases: [] }, [dev, stable], { now: opts.now, newId: () => "rel_01M5EEEEEEEEEEEEEEEEEEEEE9" });
+  assert.deepEqual(both.problems, []);
+  assert.equal(both.add.length, 1);
+  assert.match(both.pending.join(), /waits for its dev record/);
+  // a pre-release version is never pinned stable
+  assert.throws(
+    () =>
+      validateEngines([
+        enginePin({
+          version: "0.9.3-rc.1",
+          channel: "stable",
+          evidence: drills,
+          artifact: { ...enginePin().artifact, url: engineTarballUrl("openship", "0.9.3-rc.1") },
+        }),
+      ]),
+    /pre-release/,
+  );
   // stable after dev: a copy with a new id and channel stable
   const second = engineReleases({ releases: [devRec] }, [dev, stable], opts);
   assert.deepEqual(second.problems, []);
@@ -2292,13 +2317,23 @@ test("engine pins: a stable pin needs all drill evidence and an identical dev re
     enginePin({
       channel: "stable",
       evidence: drills,
-      images: enginePin().images.map((im, i) => (i === 0 ? { ...im, image: `${ENGINE_MIRROR_NAMESPACE}/openship-api@sha256:${hex("f")}` } : im)),
+      images: enginePin().images.map((im, i) =>
+        i === 0
+          ? { ...im, image: `${ENGINE_MIRROR_NAMESPACE}/openship-api@sha256:${hex("f")}`, upstream: `ghcr.io/oblien/openship-api:0.9.3@sha256:${hex("f")}` }
+          : im,
+      ),
     }),
   ]) as never[];
   assert.match(engineReleases({ releases: [devRec] }, other, opts).problems.join(), /differs from the dev record/);
   // an indexed record with other content is immutable
   const changed = validateEngines([
-    enginePin({ images: enginePin().images.map((im, i) => (i === 2 ? { ...im, image: `${ENGINE_MIRROR_NAMESPACE}/openship-edge@sha256:${hex("e")}` } : im)) }),
+    enginePin({
+      images: enginePin().images.map((im, i) =>
+        i === 2
+          ? { ...im, image: `${ENGINE_MIRROR_NAMESPACE}/openship-edge@sha256:${hex("e")}`, upstream: `ghcr.io/oblien/openship-edge:0.9.3@sha256:${hex("e")}` }
+          : im,
+      ),
+    }),
   ]) as never[];
   assert.match(engineReleases({ releases: [devRec] }, changed, opts).problems.join(), /immutable/);
 });
@@ -2341,49 +2376,219 @@ test("engine records: mergeIndex accepts only a well-formed engine record and bi
   assert.deepEqual(JSON.parse(JSON.stringify(idx.releases[0])), idx.releases[0]);
 });
 
-test("engine pins: verifyEnginePin checks the mirror manifests and that the UPSTREAM npm tarball hashes to the pin", async () => {
-  const [pin] = validateEngines([enginePin()]) as [EnginePin];
-  const npm = engineNpmUrl("openship", "0.9.3");
-  assert.equal(npm, "https://registry.npmjs.org/openship/-/openship-0.9.3.tgz");
-  const manifests = new Map<string, Buffer>();
-  const pinned = pin.images.map((im, i) => {
-    const body = Buffer.from(`manifest-${i}`);
-    return { ...im, image: im.image.replace(/@sha256:.*/, `@sha256:${createHash("sha256").update(body).digest("hex")}`), body };
-  });
-  for (const im of pinned) manifests.set(im.image.split("@")[1] as string, im.body);
-  const real = { ...pin, images: pinned.map(({ body: _b, ...im }) => im) };
+/** A scripted pair of registries (mirror = ghcr.io, upstream = ghcr.io/oblien here) with the anonymous 401 token flow. */
+function registries(images: { digest: string; body: Buffer }[], extraMirror: Map<string, Buffer> = new Map()) {
+  const mirror = new Map<string, Buffer>(extraMirror);
+  const upstream = new Map<string, Buffer>();
+  for (const im of images) {
+    mirror.set(im.digest, im.body);
+    upstream.set(im.digest, im.body);
+  }
   const calls: string[] = [];
-  const fetcher = (async (url: string) => {
+  const fetcher = (async (url: string, init?: RequestInit) => {
     calls.push(url);
     if (url.startsWith("https://ghcr.io/token")) return new Response(JSON.stringify({ token: "t" }));
-    const m = /manifests\/(sha256:[0-9a-f]{64})$/.exec(url);
+    const m = /^https:\/\/ghcr\.io\/v2\/(.+)\/manifests\/(sha256:[0-9a-f]{64})$/.exec(url);
     if (m) {
-      const b = manifests.get(m[1] as string);
+      const auth = (init?.headers as Record<string, string> | undefined)?.authorization;
+      if (!auth) return new Response("", { status: 401, headers: { "www-authenticate": 'Bearer realm="https://ghcr.io/token",service="ghcr.io"' } });
+      const store = (m[1] as string).startsWith("tealbrick/mirror/") ? mirror : upstream;
+      const b = store.get(m[2] as string);
       return b ? new Response(new Uint8Array(b)) : new Response("nope", { status: 404 });
     }
-    if (url === npm) return new Response(new Uint8Array(engineBytes));
+    if (url === engineNpmUrl("openship", "0.9.3")) return new Response(new Uint8Array(engineBytes));
     return new Response("?", { status: 500 });
   }) as unknown as typeof fetch;
-  const good = await verifyEnginePin(real, fetcher);
+  return { mirror, upstream, calls, fetcher };
+}
+function pinWithBodies(bodies: Buffer[]): { pin: EnginePin; images: { digest: string; body: Buffer }[] } {
+  const [base] = validateEngines([enginePin()]) as [EnginePin];
+  const images = bodies.map((body) => ({ digest: `sha256:${createHash("sha256").update(body).digest("hex")}`, body }));
+  const pin = {
+    ...base,
+    images: base.images.map((im, i) => ({
+      ...im,
+      image: `${ENGINE_MIRROR_NAMESPACE}/openship-${im.role}@${images[i]?.digest}`,
+      upstream: `ghcr.io/oblien/openship-${im.role}:0.9.3@${images[i]?.digest}`,
+    })),
+  } as EnginePin;
+  return { pin, images };
+}
+
+test("engine pins: verifyEnginePin checks mirror AND upstream digests and the UPSTREAM npm tarball", async () => {
+  const { pin, images } = pinWithBodies([0, 1, 2, 3, 4].map((i) => Buffer.from(JSON.stringify({ layers: [`manifest-${i}`] }))));
+  const reg = registries(images);
+  const good = await verifyEnginePin(pin, reg.fetcher);
   assert.equal(good.problem, null);
-  assert.deepEqual(good.tarball, engineBytes, "the signer gets the verified bytes to attach to the engine release");
-  assert.ok(calls.some((u) => u.includes("scope=repository:tealbrick/mirror/openship-api:pull")));
-  assert.ok(!calls.includes(pin.artifact.url), "the dist URL is not the source of truth (it only exists after the mirror ran)");
-  // a manifest that is not in the mirror
-  manifests.delete(real.images[4]?.image.split("@")[1] as string);
-  assert.match((await verifyEnginePin(real, fetcher)).problem ?? "", /redis: manifest .* not found/);
-  // the mirror serves other bytes under the digest
-  manifests.set(real.images[4]?.image.split("@")[1] as string, Buffer.from("tampered"));
-  assert.match((await verifyEnginePin(real, fetcher)).problem ?? "", /redis: the mirror serves/);
-  manifests.set(real.images[4]?.image.split("@")[1] as string, pinned[4]?.body as Buffer);
-  // npm serves other bytes than the pin
-  const badTar = (async (url: string, init?: RequestInit) => (url === npm ? new Response("other bytes") : fetcher(url, init))) as unknown as typeof fetch;
-  const bad = await verifyEnginePin(real, badTar);
+  assert.deepEqual(good.tarball, engineBytes, "the signer gets the verified bytes");
+  assert.ok(reg.calls.some((u) => u.includes("scope=repository%3Atealbrick%2Fmirror%2Fopenship-api%3Apull")));
+  assert.ok(
+    reg.calls.some((u) => u.includes("/v2/oblien/openship-api/manifests/")),
+    "the UPSTREAM registry is asked for the digest",
+  );
+  assert.ok(!reg.calls.includes(pin.artifact.url), "the dist URL is not the source of truth");
+  // a mirror digest that upstream never published (the pin names an image upstream does not serve)
+  reg.upstream.delete(images[0]?.digest as string);
+  assert.match((await verifyEnginePin(pin, reg.fetcher)).problem ?? "", /api: upstream .* does not serve/);
+  reg.upstream.set(images[0]?.digest as string, Buffer.from("other upstream bytes"));
+  assert.match((await verifyEnginePin(pin, reg.fetcher)).problem ?? "", /api: upstream serves other bytes/);
+  reg.upstream.set(images[0]?.digest as string, images[0]?.body as Buffer);
+  // a manifest that is not in the mirror, or served with other bytes
+  reg.mirror.delete(images[4]?.digest as string);
+  assert.match((await verifyEnginePin(pin, reg.fetcher)).problem ?? "", /redis: manifest .* not found in the mirror/);
+  reg.mirror.set(images[4]?.digest as string, Buffer.from("tampered"));
+  assert.match((await verifyEnginePin(pin, reg.fetcher)).problem ?? "", /redis: the mirror serves/);
+  reg.mirror.set(images[4]?.digest as string, images[4]?.body as Buffer);
+  // npm serves other bytes than the pin / is missing
+  const npm = engineNpmUrl("openship", "0.9.3");
+  const badTar = (async (url: string, init?: RequestInit) => (url === npm ? new Response("other bytes") : reg.fetcher(url, init))) as unknown as typeof fetch;
+  const bad = await verifyEnginePin(pin, badTar);
   assert.match(bad.problem ?? "", /upstream tarball's sha256 differs/);
   assert.equal(bad.tarball, null);
   const missingTar = (async (url: string, init?: RequestInit) =>
-    url === npm ? new Response("x", { status: 404 }) : fetcher(url, init)) as unknown as typeof fetch;
-  assert.match((await verifyEnginePin(real, missingTar)).problem ?? "", /HTTP 404/);
+    url === npm ? new Response("x", { status: 404 }) : reg.fetcher(url, init)) as unknown as typeof fetch;
+  assert.match((await verifyEnginePin(pin, missingTar)).problem ?? "", /HTTP 404/);
+});
+
+test("engine pins: a multi-arch index needs its linux/amd64 and linux/arm64 children in the mirror", async () => {
+  const kid = (arch: string, tag: string) => ({
+    digest: `sha256:${createHash("sha256").update(tag).digest("hex")}`,
+    platform: { os: "linux", architecture: arch },
+    body: Buffer.from(tag),
+  });
+  const amd = kid("amd64", "amd-child");
+  const arm = kid("arm64", "arm-child");
+  const attest = { digest: `sha256:${"e".repeat(64)}`, platform: { os: "unknown", architecture: "unknown" } };
+  const index = Buffer.from(
+    JSON.stringify({ manifests: [{ digest: amd.digest, platform: amd.platform }, { digest: arm.digest, platform: arm.platform }, attest] }),
+  );
+  const { pin, images } = pinWithBodies([
+    index,
+    Buffer.from(JSON.stringify({ layers: ["b1"] })),
+    Buffer.from(JSON.stringify({ layers: ["b2"] })),
+    Buffer.from(JSON.stringify({ layers: ["b3"] })),
+    Buffer.from(JSON.stringify({ layers: ["b4"] })),
+  ]);
+  // the mirror copied only the index: broken
+  const broken = registries(images);
+  assert.match((await verifyEnginePin(pin, broken.fetcher)).problem ?? "", /api: (amd64|arm64) child .* is missing in the mirror/);
+  // children copied (the unknown/unknown attestation child is not required)
+  const whole = registries(
+    images,
+    new Map([
+      [amd.digest, amd.body],
+      [arm.digest, arm.body],
+    ]),
+  );
+  assert.equal((await verifyEnginePin(pin, whole.fetcher)).problem, null);
+  // no amd64 child at all
+  const noAmd = Buffer.from(JSON.stringify({ manifests: [{ digest: arm.digest, platform: arm.platform }] }));
+  const p2 = pinWithBodies([
+    noAmd,
+    Buffer.from(JSON.stringify({ layers: ["b1"] })),
+    Buffer.from(JSON.stringify({ layers: ["b2"] })),
+    Buffer.from(JSON.stringify({ layers: ["b3"] })),
+    Buffer.from(JSON.stringify({ layers: ["b4"] })),
+  ]);
+  assert.match((await verifyEnginePin(p2.pin, registries(p2.images, new Map([[arm.digest, arm.body]])).fetcher)).problem ?? "", /no linux\/amd64 child/);
+});
+
+test("engine pins: a network error or a timeout is a problem of that pin, never a crash of the signer run", async () => {
+  const { pin, images } = pinWithBodies([0, 1, 2, 3, 4].map((i) => Buffer.from(JSON.stringify({ layers: [`m-${i}`] }))));
+  const reg = registries(images);
+  const boom = (async (url: string, init?: RequestInit) => {
+    if (url.includes("registry-1") || url.includes("/oblien/")) throw new TypeError("fetch failed");
+    return reg.fetcher(url, init);
+  }) as unknown as typeof fetch;
+  const r1 = await verifyEnginePin(pin, boom);
+  assert.match(r1.problem ?? "", /network error: fetch failed/);
+  // a hanging registry: the deadline fires (the fetcher honours the AbortSignal the wrapper passes in)
+  const hang = ((_url: string, init?: RequestInit) =>
+    new Promise((_res, rej) => {
+      const sig = init?.signal;
+      assert.ok(sig, "every registry call carries a deadline signal");
+      if (sig.aborted) rej(sig.reason);
+      sig.addEventListener("abort", () => rej(sig.reason));
+    })) as unknown as typeof fetch;
+  const t0 = Date.now();
+  const orig = AbortSignal.timeout;
+  AbortSignal.timeout = (() => AbortSignal.abort(new DOMException("deadline", "TimeoutError"))) as typeof AbortSignal.timeout;
+  try {
+    const r2 = await verifyEnginePin(pin, hang);
+    assert.match(r2.problem ?? "", /timeout/);
+  } finally {
+    AbortSignal.timeout = orig;
+  }
+  assert.ok(Date.now() - t0 < 5000);
+});
+
+test("engine assets: ensureEngineAsset attaches verified bytes, never replaces, flags a wrong existing asset, heals a missing one, never exits", async () => {
+  const [pin] = validateEngines([enginePin()]) as never[];
+  const rec = engineReleases({ releases: [] }, [pin], { now: "t", newId: () => "rel_01M5EEEEEEEEEEEEEEEEEEEEE0" }).add[0] as IndexRelease;
+  const posts: { path: string; host?: string }[] = [];
+  let assets: { id: number; name: string }[] = [];
+  let releaseExists = false;
+  const ghFake = (async (method: string, path: string, _body?: unknown, extra?: { host?: string }) => {
+    if (method === "GET" && path.endsWith(`/releases/tags/${rec.tag}`))
+      return releaseExists
+        ? { status: 200, json: { id: 7, upload_url: "https://uploads.github.com/repos/Tealbrick/opt2-tealbrick-platform/releases/7/assets{?name,label}" } }
+        : { status: 404, json: null };
+    if (method === "POST" && path.endsWith("/releases")) {
+      releaseExists = true;
+      return { status: 201, json: { id: 7, upload_url: "https://uploads.github.com/repos/Tealbrick/opt2-tealbrick-platform/releases/7/assets{?name,label}" } };
+    }
+    if (method === "GET" && path.includes("/releases/7/assets")) return { status: 200, json: assets };
+    if (method === "POST") {
+      posts.push({ path, host: extra?.host });
+      assets = [{ id: 99, name: "openship-0.9.3.tgz" }];
+      return { status: 201, json: {} };
+    }
+    return { status: 500, json: null };
+  }) as never;
+  const npm = engineNpmUrl("openship", "0.9.3");
+  let served = engineBytes;
+  const fetcher = (async (url: string) => {
+    if (url === npm) return new Response(new Uint8Array(engineBytes));
+    if (url.includes("/releases/assets/99")) return new Response(new Uint8Array(served));
+    return new Response("?", { status: 500 });
+  }) as unknown as typeof fetch;
+  // absent: release created, bytes from npm checked against the signed record, uploaded
+  assert.equal(await ensureEngineAsset(rec, { gh: ghFake, fetcher }), null);
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0]?.host, "uploads.github.com");
+  assert.match(posts[0]?.path ?? "", /\/assets\?name=openship-0\.9\.3\.tgz$/);
+  // present with the right bytes: nothing uploaded
+  assert.equal(await ensureEngineAsset(rec, { gh: ghFake, fetcher }), null);
+  assert.equal(posts.length, 1);
+  // present with other bytes: an ALARM problem, still nothing replaced
+  served = Buffer.from("not the pinned bytes");
+  assert.match((await ensureEngineAsset(rec, { gh: ghFake, fetcher })) ?? "", /does not hash to the signed record/);
+  assert.equal(posts.length, 1);
+  // missing again + npm serves other bytes than the record: no upload, a problem
+  assets = [];
+  const badNpm = (async () => new Response("other")) as unknown as typeof fetch;
+  assert.match((await ensureEngineAsset(rec, { gh: ghFake, fetcher: badNpm })) ?? "", /npm tarball does not hash/);
+  assert.equal(posts.length, 1);
+  // a thrown network error is a problem string, not an exception
+  const throwing = (async () => {
+    throw new TypeError("fetch failed");
+  }) as unknown as typeof fetch;
+  assert.match((await ensureEngineAsset(rec, { gh: ghFake, fetcher: throwing })) ?? "", /fetch failed/);
+});
+
+test("engine records: mergeIndex refuses a stable record without an identical dev record", () => {
+  const drills = { h0: "h0.md", conformance: "fixture-run-1", restoreDrill: "restore-drill-1", upgradeDrill: "upgrade-drill-1" };
+  const [dev] = validateEngines([enginePin()]) as never[];
+  const [stable] = validateEngines([enginePin({ channel: "stable", evidence: drills })]) as never[];
+  const o = { now: "t", newId: () => "rel_01M5EEEEEEEEEEEEEEEEEEEEE0" };
+  const devRec = engineReleases({ releases: [] }, [dev], o).add[0] as IndexRelease;
+  const stRec = engineReleases({ releases: [devRec] }, [stable], { now: "t", newId: () => "rel_01M5EEEEEEEEEEEEEEEEEEEEE1" }).add[0] as IndexRelease;
+  assert.throws(() => mergeIndex(null, [stRec], [], "t"), /needs an identical dev record/);
+  assert.equal(mergeIndex(null, [devRec, stRec], [], "t").releases.length, 2);
+  assert.throws(
+    () => mergeIndex(null, [devRec, { ...stRec, artifact: { ...(stRec.artifact as object), sha256: `sha256:${hex("9")}` } as never }], [], "t"),
+    /needs an identical dev record/,
+  );
 });
 
 test("engine records: tag and dist URL follow the dist mirror's rule (<repo>-<tag>/<file>), so scripts/mirror.ts can copy the tarball", () => {

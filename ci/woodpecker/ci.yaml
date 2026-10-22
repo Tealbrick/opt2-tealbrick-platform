@@ -50,7 +50,7 @@ steps:
     environment: &env
       CI: "true"
       TB_CI_REF: ci-v9.19
-      TB_CI_SHA256: "c93d4c600307f745f916b6632f039765cae57b380a792b15f91a3979238f7435"
+      TB_CI_SHA256: "8f73e5e2c78a1d93565d92d070ed5af0361a240cdc500c15481839965c385533"
       NPM_CONFIG_UPDATE_NOTIFIER: "false"
       NPM_CONFIG_FUND: "false"
       NPM_CONFIG_AUDIT: "false"
@@ -202,7 +202,7 @@ steps:
     depends_on: [pre-release]
     environment:
       CI: "true"
-      TB_CI_SHA256: "c93d4c600307f745f916b6632f039765cae57b380a792b15f91a3979238f7435"
+      TB_CI_SHA256: "8f73e5e2c78a1d93565d92d070ed5af0361a240cdc500c15481839965c385533"
       TB_MANIFEST_PKG: https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/opt2-tealbrick-sdk-manifest-v0.1.30/opt2-tealbrick-manifest-0.1.30.tgz
       TB_MANIFEST_INTEGRITY: sha512-Jym8WSYaJ3IFJAnBc7bflJULt5g1ZXbtJaB1kLMmlqzL5oKLv/kgBrN4gTpJQ26aBYRco7uZ5+qbbRQDCI6X3g==
       # ci-v9.3: the manifest package depends on @opt2-tealbrick/spec by a GitHub URL (no integrity). The runner installs this

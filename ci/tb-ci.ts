@@ -699,7 +699,8 @@ export interface EnginePin {
 }
 
 const ENGINE_IMAGE_RE = new RegExp(`^${ENGINE_MIRROR_NAMESPACE.replace(/\./g, "\\.")}/([a-z0-9][a-z0-9._-]{0,60})@(sha256:[0-9a-f]{64})$`);
-const ENGINE_UPSTREAM_RE = /^[a-z0-9][a-z0-9./_-]{0,120}(?::[A-Za-z0-9._-]{1,64})?(?:@sha256:[0-9a-f]{64})?$/;
+/** `[host[:port]/]repo[:tag]@sha256:<digest>`: the upstream image the mirror copied, by the SAME digest as the mirror entry (crane copy keeps digests). */
+const ENGINE_UPSTREAM_RE = /^((?:[a-z0-9.-]+(?::\d+)?\/)?[a-z0-9][a-z0-9._/-]{0,120})(?::[A-Za-z0-9._-]{1,64})?@(sha256:[0-9a-f]{64})$/;
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 /** The only accepted URL of an engine tarball (our mirror on a dist host): `<dist base>/opt2-tealbrick-platform-engine-<product>-v<ver>/<npm name>-<ver>.tgz`. */
@@ -741,9 +742,10 @@ export function engineContentProblem(c: {
     seen.add(im.role as string);
     if (typeof im.image !== "string" || !ENGINE_IMAGE_RE.test(im.image))
       return `images[${i}] (${String(im.role)}): image must be ${ENGINE_MIRROR_NAMESPACE}/<name>@sha256:<64 hex> (our mirror, by digest, never a tag)`;
-    if (typeof im.upstream !== "string" || !ENGINE_UPSTREAM_RE.test(im.upstream))
-      return `images[${i}] (${String(im.role)}): upstream must be a plain image reference (no scheme, no spaces)`;
+    const up = typeof im.upstream === "string" ? ENGINE_UPSTREAM_RE.exec(im.upstream) : null;
+    if (!up) return `images[${i}] (${String(im.role)}): upstream must be <repo>[:tag]@sha256:<digest> (no scheme, no spaces)`;
     const d = (ENGINE_IMAGE_RE.exec(im.image) as RegExpExecArray)[2] as string;
+    if (up[2] !== d) return `images[${i}] (${String(im.role)}): upstream digest ${up[2]} differs from the mirror digest ${d} (the mirror must copy by digest)`;
     if (digests.has(d)) return `images[${i}] (${String(im.role)}): digest repeats another role (a pin must not reuse one image for two roles)`;
     digests.add(d);
   }
@@ -812,6 +814,7 @@ export function validateEngines(raw: unknown): EnginePin[] {
     if (!ref(e.h0)) bad("evidence.h0 (reference of the H0 measurement on a test box)");
     for (const k of ["conformance", "restoreDrill", "upgradeDrill"])
       if (e[k] !== undefined && !ref(e[k])) bad(`evidence.${k} must be a reference without spaces`);
+    if (p.channel === "stable" && String(p.version).includes("-")) bad("a pre-release version is never pinned stable");
     if (p.channel === "stable")
       for (const k of ["conformance", "restoreDrill", "upgradeDrill"])
         if (!ref(e[k])) bad(`a stable engine pin needs evidence.${k} (compose+Caddy fixture conformance, restore drill and upgrade+restore drill passed)`);
@@ -861,9 +864,10 @@ export function engineReleases(
   index: { releases: IndexRelease[] },
   pins: EnginePin[],
   opts: { now: string; newId?: () => string },
-): { add: IndexRelease[]; problems: string[] } {
+): { add: IndexRelease[]; problems: string[]; pending: string[] } {
   const add: IndexRelease[] = [];
   const problems: string[] = [];
+  const pending: string[] = [];
   for (const p of pins) {
     const where = `engine ${p.product}@${p.version} (${p.channel})`;
     const draft = engineRecord(p, "rel_00000000000000000000000000", opts.now);
@@ -876,6 +880,12 @@ export function engineReleases(
     if (p.channel === "stable") {
       const dev = index.releases.find((r) => r.kind === "engine" && r.product === p.product && r.version === p.version && r.channel === "dev");
       if (!dev) {
+        // dev and stable in one PR: the stable one waits for the next run (no red run), if the dev pin is the same content
+        const sib = pins.find((x) => x.product === p.product && x.version === p.version && x.channel === "dev");
+        if (sib && JSON.stringify([sib.artifact, sib.images]) === JSON.stringify([p.artifact, p.images])) {
+          pending.push(`${where}: waits for its dev record to be indexed`);
+          continue;
+        }
         problems.push(`${where}: no dev record of this version in the index yet (pin it on dev first, then promote with the same content)`);
         continue;
       }
@@ -886,38 +896,104 @@ export function engineReleases(
     }
     add.push(engineRecord(p, (opts.newId ?? (() => newId("rel")))(), opts.now));
   }
-  return { add, problems };
+  return { add, problems, pending };
 }
 
-/** The signer's independent check of one pin before it signs: every mirrored image manifest exists in ghcr under its digest (the
- *  manifest bytes hash to the digest) and the UPSTREAM npm tarball hashes to the pinned sha256 and sha512 (the pin is what npm
- *  serves, not what a mirror says). Returns the tarball so the signer can attach it to this repo's engine release, which the dist
- *  mirror copies; null problem = verified. */
-export async function verifyEnginePin(p: EnginePin, fetcher: typeof fetch = fetch): Promise<{ problem: string | null; tarball: Buffer | null }> {
+const REGISTRY_TIMEOUT_MS = 30_000;
+const TARBALL_TIMEOUT_MS = 180_000;
+/** fetch with a deadline: one hung registry must not hold the whole signer run. */
+function withDeadline(fetcher: typeof fetch, ms: number): typeof fetch {
+  return ((url: string | URL | Request, init?: RequestInit) => fetcher(url, { ...init, signal: init?.signal ?? AbortSignal.timeout(ms) })) as typeof fetch;
+}
+
+/** `[host/]repo` of an image reference: Docker Hub names get registry-1.docker.io and the `library/` prefix. */
+export function registryOf(repoRef: string): { host: string; repo: string } {
+  const first = repoRef.split("/")[0] as string;
+  if (repoRef.includes("/") && (first.includes(".") || first.includes(":")) && first !== "docker.io" && first !== "index.docker.io")
+    return { host: first, repo: repoRef.slice(first.length + 1) };
+  const rest = first === "docker.io" || first === "index.docker.io" ? repoRef.slice(first.length + 1) : repoRef;
+  return { host: "registry-1.docker.io", repo: rest.includes("/") ? rest : `library/${rest}` };
+}
+
+/** GET manifest `reference` of `repo` on `host` with the anonymous Bearer flow (the 401 challenge names the token endpoint). */
+export async function registryManifest(
+  host: string,
+  repo: string,
+  reference: string,
+  fetcher: typeof fetch,
+): Promise<{ status: number; bytes: Buffer | null }> {
+  const url = `https://${host}/v2/${repo}/manifests/${reference}`;
+  let res = await fetcher(url, { headers: { accept: GHCR_ACCEPT } });
+  if (res.status === 401) {
+    const ch = /Bearer realm="([^"]+)"(?:,service="([^"]*)")?/i.exec(res.headers.get("www-authenticate") ?? "");
+    if (!ch) return { status: 401, bytes: null };
+    const tokUrl = `${ch[1]}?${ch[2] ? `service=${encodeURIComponent(ch[2])}&` : ""}scope=${encodeURIComponent(`repository:${repo}:pull`)}`;
+    const tok = await fetcher(tokUrl);
+    if (!tok.ok) return { status: tok.status, bytes: null };
+    const j = (await tok.json()) as { token?: string; access_token?: string };
+    res = await fetcher(url, { headers: { accept: GHCR_ACCEPT, authorization: `Bearer ${j.token ?? j.access_token ?? ""}` } });
+  }
+  return { status: res.status, bytes: res.ok ? Buffer.from(await res.arrayBuffer()) : null };
+}
+
+/** The signer's independent check of one pin before it signs. For every image: the mirror serves the digest (bytes hash to it), the
+ *  UPSTREAM registry serves the same digest (the mirror copied what upstream published), and for a multi-arch index every linux/amd64
+ *  and linux/arm64 child exists in the mirror with its own digest (a copy of the index alone is a broken mirror). The UPSTREAM npm
+ *  tarball must hash to the pinned sha256 and sha512; it is returned so the signer can attach it to this repo's engine release,
+ *  which the dist mirror copies. Network errors and timeouts are problems of this pin, never a crash. */
+export async function verifyEnginePin(p: EnginePin, fetcherIn: typeof fetch = fetch): Promise<{ problem: string | null; tarball: Buffer | null }> {
   const sha = (alg: "sha256" | "sha512", b: Buffer) => createHash(alg).update(b).digest();
   const where = `engine ${p.product}@${p.version}`;
   const fail = (problem: string) => ({ problem, tarball: null });
-  for (const im of p.images) {
-    const m = ENGINE_IMAGE_RE.exec(im.image);
-    if (!m) return fail(`${where}: bad image ref ${im.image}`);
-    const name = `tealbrick/mirror/${m[1]}`;
-    const digest = m[2] as string;
-    const tok = await fetcher(`https://ghcr.io/token?scope=repository:${name}:pull`);
-    if (!tok.ok) return fail(`${where}: ${im.role}: no pull token for ${name} (package private?) HTTP ${tok.status}`);
-    const token = ((await tok.json()) as { token: string }).token;
-    const res = await fetcher(`https://ghcr.io/v2/${name}/manifests/${digest}`, { headers: { authorization: `Bearer ${token}`, accept: GHCR_ACCEPT } });
-    if (!res.ok) return fail(`${where}: ${im.role}: manifest ${digest.slice(0, 19)}… not found in the mirror, HTTP ${res.status}`);
-    const got = `sha256:${sha("sha256", Buffer.from(await res.arrayBuffer())).toString("hex")}`;
-    if (got !== digest) return fail(`${where}: ${im.role}: the mirror serves ${got} for ${digest}`);
+  const fetcher = withDeadline(fetcherIn, REGISTRY_TIMEOUT_MS);
+  try {
+    for (const im of p.images) {
+      const m = ENGINE_IMAGE_RE.exec(im.image);
+      const up = ENGINE_UPSTREAM_RE.exec(im.upstream);
+      if (!m || !up) return fail(`${where}: ${im.role}: bad image ref`);
+      const name = `tealbrick/mirror/${m[1]}`;
+      const digest = m[2] as string;
+      const mir = await registryManifest("ghcr.io", name, digest, fetcher);
+      if (!mir.bytes) return fail(`${where}: ${im.role}: manifest ${digest.slice(0, 19)}… not found in the mirror, HTTP ${mir.status}`);
+      const got = `sha256:${sha("sha256", mir.bytes).toString("hex")}`;
+      if (got !== digest) return fail(`${where}: ${im.role}: the mirror serves ${got} for ${digest}`);
+      const { host, repo } = registryOf(up[1] as string);
+      const upm = await registryManifest(host, repo, digest, fetcher);
+      if (!upm.bytes)
+        return fail(
+          `${where}: ${im.role}: upstream ${host}/${repo} does not serve ${digest.slice(0, 19)}… (HTTP ${upm.status}); the pin names an image upstream never published`,
+        );
+      if (`sha256:${sha("sha256", upm.bytes).toString("hex")}` !== digest) return fail(`${where}: ${im.role}: upstream serves other bytes under ${digest}`);
+      let doc: { manifests?: { digest: string; platform?: { os?: string; architecture?: string } }[] } = {};
+      try {
+        doc = JSON.parse(mir.bytes.toString("utf8"));
+      } catch {
+        return fail(`${where}: ${im.role}: the manifest is not JSON`);
+      }
+      if (Array.isArray(doc.manifests)) {
+        const kids = doc.manifests.filter((k) => k.platform?.os === "linux" && (k.platform.architecture === "amd64" || k.platform.architecture === "arm64"));
+        if (!kids.some((k) => k.platform?.architecture === "amd64")) return fail(`${where}: ${im.role}: the image index has no linux/amd64 child`);
+        for (const k of kids) {
+          if (!/^sha256:[0-9a-f]{64}$/.test(k.digest)) return fail(`${where}: ${im.role}: malformed child digest`);
+          const child = await registryManifest("ghcr.io", name, k.digest, fetcher);
+          if (!child.bytes || `sha256:${sha("sha256", child.bytes).toString("hex")}` !== k.digest)
+            return fail(
+              `${where}: ${im.role}: ${k.platform?.architecture} child ${k.digest.slice(0, 19)}… is missing in the mirror (an index copied without its children)`,
+            );
+        }
+      }
+    }
+    const url = engineNpmUrl(p.product, p.version);
+    const res = await withDeadline(fetcherIn, TARBALL_TIMEOUT_MS)(url, { redirect: "follow" });
+    if (!res.ok) return fail(`${where}: upstream tarball ${url} HTTP ${res.status}`);
+    const bytes = Buffer.from(await res.arrayBuffer());
+    if (`sha256:${sha("sha256", bytes).toString("hex")}` !== p.artifact.sha256) return fail(`${where}: the upstream tarball's sha256 differs from the pin`);
+    if (`sha512-${sha("sha512", bytes).toString("base64")}` !== p.artifact.integrity)
+      return fail(`${where}: the upstream tarball's sha512 integrity differs from the pin`);
+    return { problem: null, tarball: bytes };
+  } catch (e) {
+    return fail(`${where}: ${(e as Error).name === "TimeoutError" ? "timeout" : "network error"}: ${(e as Error).message}`);
   }
-  const url = engineNpmUrl(p.product, p.version);
-  const res = await fetcher(url, { redirect: "follow" });
-  if (!res.ok) return fail(`${where}: upstream tarball ${url} HTTP ${res.status}`);
-  const bytes = Buffer.from(await res.arrayBuffer());
-  if (`sha256:${sha("sha256", bytes).toString("hex")}` !== p.artifact.sha256) return fail(`${where}: the upstream tarball's sha256 differs from the pin`);
-  if (`sha512-${sha("sha512", bytes).toString("base64")}` !== p.artifact.integrity)
-    return fail(`${where}: the upstream tarball's sha512 integrity differs from the pin`);
-  return { problem: null, tarball: bytes };
 }
 
 /** C206 R2-1: one legacy-owner location in a signed record moved to OWNER (same repo name; GitHub transfer). */
@@ -1913,6 +1989,11 @@ export function mergeIndex(
     if (r.kind === "engine") {
       const problem = engineEntryProblem(r);
       if (problem) throw new Error(`${r.product}@${r.version}: ${problem}`);
+      if (r.channel === "stable") {
+        const dev = releases.find((x) => x.kind === "engine" && x.product === r.product && x.version === r.version && x.channel === "dev");
+        if (!dev || JSON.stringify([dev.artifact, dev.engine]) !== JSON.stringify([r.artifact, r.engine]))
+          throw new Error(`${r.product}@${r.version}: a stable engine record needs an identical dev record in the index first`);
+      }
     } else if (r.engine !== undefined) throw new Error(`${r.product}@${r.version}: the engine field belongs to kind engine only`);
     if ((r.kind === "bridge") !== (r.runtime !== null && r.runtime !== undefined))
       throw new Error(`${r.product}@${r.version}: runtime is required for kind bridge and only allowed there`);
@@ -4479,15 +4560,48 @@ async function candidateFromTag(repo: string, tag: string, commit: string, rd: R
   return buildCandidateDoc(cfg, repo, tag, commit, (name) => ghcrFind(name, version));
 }
 
-/** Puts the verified engine tarball on this repo's release `engine-<product>-v<ver>` (created if absent) unless the asset is already
- *  there. The dist mirror then copies it to the dist host named in the signed record. Never replaces an existing asset. */
-async function ensureEngineAsset(r: IndexRelease, tarball: Buffer): Promise<void> {
-  const rel = await ensureRelease(PLATFORM_REPO, r.tag as string, false);
-  const name = tarballName((ENGINE_PRODUCTS[r.product] as { npmPackage: string }).npmPackage, r.version);
-  const list = await gh("GET", `/repos/${repoFullName(PLATFORM_REPO)}/releases/${rel.id}/assets?per_page=100`);
-  if (list.status !== 200 || !Array.isArray(list.json)) fail(`list assets of release ${r.tag}: HTTP ${list.status}`);
-  if ((list.json as Array<{ name: string }>).some((a) => a.name === name)) return;
-  await putAsset(PLATFORM_REPO, rel, name, tarball, "application/gzip");
+/** Makes sure this repo's release `engine-<product>-v<ver>` carries the tarball the signed record pins (the dist mirror copies it from
+ *  there). Runs AFTER the index is published and for EVERY engine record on every run, so a failed upload heals itself. An asset that
+ *  is already there is downloaded and hashed (never replaced); a missing one is fetched from npm, hashed against the record, uploaded.
+ *  Returns a problem string, never exits the process. `deps` are injectable for tests. */
+export async function ensureEngineAsset(r: IndexRelease, deps: { gh?: typeof gh; fetcher?: typeof fetch } = {}): Promise<string | null> {
+  const call = deps.gh ?? gh;
+  const fetcher = deps.fetcher ?? fetch;
+  const where = `engine ${r.product}@${r.version} release ${r.tag}`;
+  try {
+    const full = repoFullName(PLATFORM_REPO);
+    const name = tarballName((ENGINE_PRODUCTS[r.product] as { npmPackage: string }).npmPackage, r.version);
+    let rel = await call("GET", `/repos/${full}/releases/tags/${r.tag}`);
+    if (rel.status === 404) rel = await call("POST", `/repos/${full}/releases`, { tag_name: r.tag, name: r.tag, prerelease: false });
+    if ((rel.status !== 200 && rel.status !== 201) || typeof rel.json?.id !== "number" || typeof rel.json?.upload_url !== "string")
+      return `${where}: cannot read or create the release (HTTP ${rel.status})`;
+    const list = await call("GET", `/repos/${full}/releases/${rel.json.id}/assets?per_page=100`);
+    if (list.status !== 200 || !Array.isArray(list.json)) return `${where}: list assets HTTP ${list.status}`;
+    const have = (list.json as Array<{ id: number; name: string }>).find((a) => a.name === name);
+    const want = r.artifact as ReleaseArtifact;
+    const hashOk = (b: Buffer) =>
+      `sha256:${createHash("sha256").update(b).digest("hex")}` === want.sha256 &&
+      `sha512-${createHash("sha512").update(b).digest("base64")}` === want.integrity;
+    if (have) {
+      const res = await withDeadline(fetcher, TARBALL_TIMEOUT_MS)(`https://api.github.com/repos/${full}/releases/assets/${have.id}`, {
+        headers: { accept: "application/octet-stream", authorization: `Bearer ${process.env.GITHUB_TOKEN ?? ""}` },
+        redirect: "follow",
+      });
+      if (!res.ok) return `${where}: cannot read the existing asset (HTTP ${res.status})`;
+      return hashOk(Buffer.from(await res.arrayBuffer()))
+        ? null
+        : `${where}: the existing asset ${name} does not hash to the signed record (ALARM: nothing is replaced)`;
+    }
+    const up = await withDeadline(fetcher, TARBALL_TIMEOUT_MS)(engineNpmUrl(r.product, r.version), { redirect: "follow" });
+    if (!up.ok) return `${where}: npm tarball HTTP ${up.status}`;
+    const bytes = Buffer.from(await up.arrayBuffer());
+    if (!hashOk(bytes)) return `${where}: the npm tarball does not hash to the signed record`;
+    const target = uploadTarget(rel.json.upload_url, name);
+    const put = await call("POST", target.path, undefined, { host: target.host, contentType: "application/gzip", raw: bytes });
+    return put.status === 201 ? null : `${where}: upload HTTP ${put.status}`;
+  } catch (e) {
+    return `${where}: ${(e as Error).message}`;
+  }
 }
 
 /** Platform signer pipeline (cron/manual, platform repo only, holds release_signing_key):
@@ -4587,16 +4701,15 @@ async function cmdRegistrySync(): Promise<void> {
   const pins = validateEngines(JSON.parse((await ghFile(ENGINES_PATH, "main")) ?? "[]"));
   const engines = engineReleases(index ?? { releases: [] }, pins, { now: new Date().toISOString() });
   rejected.push(...engines.problems);
+  for (const note of engines.pending) log(`registry-sync: ${note}`);
   for (const r of engines.add) {
     const pin = pins.find((x) => x.product === r.product && x.version === r.version && x.channel === r.channel) as EnginePin;
     const v = await verifyEnginePin(pin);
-    if (v.problem || !v.tarball) rejected.push(v.problem ?? `engine ${r.product}@${r.version}: no tarball`);
+    if (v.problem) rejected.push(v.problem);
     else {
-      // the dist mirror copies the tarball from this repo's release `engine-<product>-v<ver>` (planMirror: dist tag = <repo>-<tag>)
-      await ensureEngineAsset(r, v.tarball);
       add.push(r);
       log(
-        `verified engine ${r.product}@${r.version} (${r.channel}): ${pin.images.length} images by digest, upstream tarball hashes match, release ${r.tag} has the asset`,
+        `verified engine ${r.product}@${r.version} (${r.channel}): ${pin.images.length} images (mirror + upstream digests, multi-arch children), upstream tarball hashes match`,
       );
     }
   }
@@ -4613,6 +4726,11 @@ async function cmdRegistrySync(): Promise<void> {
   else {
     log("registry-sync: nothing new");
     await syncRegistryExtraAssets(); // a key file changed on main without an index change (e.g. a new key-set statement)
+  }
+  // S1: the tarball of every engine record sits on this repo's release for the dist mirror (after the index, idempotent, heals itself)
+  for (const r of [...(index?.releases ?? []), ...add].filter((x) => x.kind === "engine")) {
+    const problem = await ensureEngineAsset(r);
+    if (problem) rejected.push(problem);
   }
   if (rejected.length) fail(`rejected candidates:\n  - ${rejected.join("\n  - ")}`);
 }
