@@ -53,7 +53,9 @@ import {
   ENGINE_ROLES,
   type EnginePin,
   engineEntryProblem,
+  engineNpmUrl,
   engineReleases,
+  engineTag,
   engineTarballUrl,
   expectedGenFiles,
   GH_WORKFLOW_PATH,
@@ -2339,8 +2341,10 @@ test("engine records: mergeIndex accepts only a well-formed engine record and bi
   assert.deepEqual(JSON.parse(JSON.stringify(idx.releases[0])), idx.releases[0]);
 });
 
-test("engine pins: verifyEnginePin checks the mirror manifests and the tarball bytes", async () => {
+test("engine pins: verifyEnginePin checks the mirror manifests and that the UPSTREAM npm tarball hashes to the pin", async () => {
   const [pin] = validateEngines([enginePin()]) as [EnginePin];
+  const npm = engineNpmUrl("openship", "0.9.3");
+  assert.equal(npm, "https://registry.npmjs.org/openship/-/openship-0.9.3.tgz");
   const manifests = new Map<string, Buffer>();
   const pinned = pin.images.map((im, i) => {
     const body = Buffer.from(`manifest-${i}`);
@@ -2357,25 +2361,43 @@ test("engine pins: verifyEnginePin checks the mirror manifests and the tarball b
       const b = manifests.get(m[1] as string);
       return b ? new Response(new Uint8Array(b)) : new Response("nope", { status: 404 });
     }
-    if (url === pin.artifact.url) return new Response(new Uint8Array(engineBytes));
+    if (url === npm) return new Response(new Uint8Array(engineBytes));
     return new Response("?", { status: 500 });
   }) as unknown as typeof fetch;
-  assert.equal(await verifyEnginePin(real, fetcher), null);
+  const good = await verifyEnginePin(real, fetcher);
+  assert.equal(good.problem, null);
+  assert.deepEqual(good.tarball, engineBytes, "the signer gets the verified bytes to attach to the engine release");
   assert.ok(calls.some((u) => u.includes("scope=repository:tealbrick/mirror/openship-api:pull")));
+  assert.ok(!calls.includes(pin.artifact.url), "the dist URL is not the source of truth (it only exists after the mirror ran)");
   // a manifest that is not in the mirror
   manifests.delete(real.images[4]?.image.split("@")[1] as string);
-  assert.match((await verifyEnginePin(real, fetcher)) ?? "", /redis: manifest .* not found/);
+  assert.match((await verifyEnginePin(real, fetcher)).problem ?? "", /redis: manifest .* not found/);
   // the mirror serves other bytes under the digest
   manifests.set(real.images[4]?.image.split("@")[1] as string, Buffer.from("tampered"));
-  assert.match((await verifyEnginePin(real, fetcher)) ?? "", /redis: the mirror serves/);
+  assert.match((await verifyEnginePin(real, fetcher)).problem ?? "", /redis: the mirror serves/);
   manifests.set(real.images[4]?.image.split("@")[1] as string, pinned[4]?.body as Buffer);
-  // a tarball whose bytes differ
-  const badTar = (async (url: string, init?: RequestInit) =>
-    url === pin.artifact.url ? new Response("other bytes") : fetcher(url, init)) as unknown as typeof fetch;
-  assert.match((await verifyEnginePin(real, badTar)) ?? "", /tarball sha256 differs/);
+  // npm serves other bytes than the pin
+  const badTar = (async (url: string, init?: RequestInit) => (url === npm ? new Response("other bytes") : fetcher(url, init))) as unknown as typeof fetch;
+  const bad = await verifyEnginePin(real, badTar);
+  assert.match(bad.problem ?? "", /upstream tarball's sha256 differs/);
+  assert.equal(bad.tarball, null);
   const missingTar = (async (url: string, init?: RequestInit) =>
-    url === pin.artifact.url ? new Response("x", { status: 404 }) : fetcher(url, init)) as unknown as typeof fetch;
-  assert.match((await verifyEnginePin(real, missingTar)) ?? "", /HTTP 404/);
+    url === npm ? new Response("x", { status: 404 }) : fetcher(url, init)) as unknown as typeof fetch;
+  assert.match((await verifyEnginePin(real, missingTar)).problem ?? "", /HTTP 404/);
+});
+
+test("engine records: tag and dist URL follow the dist mirror's rule (<repo>-<tag>/<file>), so scripts/mirror.ts can copy the tarball", () => {
+  const [pin] = validateEngines([enginePin()]) as never[];
+  const rec = engineReleases({ releases: [] }, [pin], { now: "t" }).add[0] as IndexRelease;
+  assert.equal(rec.tag, "engine-openship-v0.9.3");
+  assert.equal(engineTag("openship", "0.9.3"), rec.tag);
+  const base = DIST_BASES[0] as string;
+  const tail = (rec.artifact as { url: string }).url.slice(base.length + 1);
+  // dist planMirror: url tail = `${repoName}-${tag}/${file}` with repoName from record.repo
+  assert.equal(tail, `${(rec.repo as string).split("/")[1]}-${rec.tag}/openship-0.9.3.tgz`);
+  assert.equal(engineEntryProblem({ ...rec, tag: "v0.9.3" }) !== null, true);
+  assert.equal(engineEntryProblem({ ...rec, tag: null }) !== null, true);
+  assert.equal(engineEntryProblem({ ...rec, commit: "abc" }) !== null, true);
 });
 
 // ---------- ci-v9.10 (C222): releases of private repos on Woodpecker ----------

@@ -654,6 +654,16 @@ export const ENGINE_MIRROR_NAMESPACE = "ghcr.io/tealbrick/mirror";
 export const ENGINE_PRODUCTS: Readonly<Record<string, { npmPackage: string; upstreamRepo: string; license: string }>> = {
   openship: { npmPackage: "openship", upstreamRepo: "oblien/openship", license: "Apache-2.0" },
 };
+/** Release tag in THIS repo that holds the mirrored tarball; the dist mirror (scripts/mirror.ts) copies it from there to the dist host. */
+export function engineTag(product: string, version: string): string {
+  return `engine-${product}-v${version}`;
+}
+/** The upstream truth of the tarball bytes: the npm registry. The pin must hash to exactly this file. */
+export function engineNpmUrl(product: string, version: string): string {
+  const e = ENGINE_PRODUCTS[product];
+  if (!e) throw new Error(`${product} is not an engine product (ENGINE_PRODUCTS)`);
+  return `https://registry.npmjs.org/${e.npmPackage}/-/${tarballName(e.npmPackage, version)}`;
+}
 export const ENGINE_CHANNELS: readonly Channel[] = ["dev", "stable"];
 
 export interface EngineImage {
@@ -756,6 +766,9 @@ export function engineEntryProblem(r: IndexRelease): string | null {
   if (problem) return problem;
   if (!ENGINE_CHANNELS.includes(r.channel)) return `channel must be ${ENGINE_CHANNELS.join("|")}`;
   if (r.repo !== `${OWNER}/${PLATFORM_REPO}`) return `an engine record comes from ${OWNER}/${PLATFORM_REPO} (it is reviewed there), got ${r.repo}`;
+  if (r.tag !== engineTag(r.product, r.version))
+    return `tag must be ${engineTag(r.product, r.version)} (the release of this repo the dist mirror copies the tarball from), got ${JSON.stringify(r.tag)}`;
+  if (r.commit !== null) return "an engine record has no commit";
   if (r.image || r.source || r.runtime || r.services?.length || r.manifestDigest || r.manifestUrl || r.skillsDigest || r.devOnly || r.promotedFrom)
     return "an engine record carries only artifact and engine (no image, source, runtime, services, manifest, devOnly or promotedFrom)";
   if (r.minOs !== null || r.notarized !== null) return "minOs/notarized are desktop fields";
@@ -829,7 +842,7 @@ function engineRecord(p: EnginePin, id: string, now: string): IndexRelease {
     upgradeFrom: "*",
     repo: `${OWNER}/${PLATFORM_REPO}`,
     commit: null,
-    tag: null,
+    tag: engineTag(p.product, p.version),
     publishedAt: now,
     engine: {
       npmPackage: e.npmPackage,
@@ -876,30 +889,35 @@ export function engineReleases(
   return { add, problems };
 }
 
-/** The signer's independent check of one pin before it signs: every mirrored image manifest exists in ghcr under its digest
- *  (the manifest bytes hash to the digest) and the tarball bytes hash to the pinned sha256 and sha512. Null = verified. */
-export async function verifyEnginePin(p: EnginePin, fetcher: typeof fetch = fetch): Promise<string | null> {
+/** The signer's independent check of one pin before it signs: every mirrored image manifest exists in ghcr under its digest (the
+ *  manifest bytes hash to the digest) and the UPSTREAM npm tarball hashes to the pinned sha256 and sha512 (the pin is what npm
+ *  serves, not what a mirror says). Returns the tarball so the signer can attach it to this repo's engine release, which the dist
+ *  mirror copies; null problem = verified. */
+export async function verifyEnginePin(p: EnginePin, fetcher: typeof fetch = fetch): Promise<{ problem: string | null; tarball: Buffer | null }> {
   const sha = (alg: "sha256" | "sha512", b: Buffer) => createHash(alg).update(b).digest();
   const where = `engine ${p.product}@${p.version}`;
+  const fail = (problem: string) => ({ problem, tarball: null });
   for (const im of p.images) {
     const m = ENGINE_IMAGE_RE.exec(im.image);
-    if (!m) return `${where}: bad image ref ${im.image}`;
+    if (!m) return fail(`${where}: bad image ref ${im.image}`);
     const name = `tealbrick/mirror/${m[1]}`;
     const digest = m[2] as string;
     const tok = await fetcher(`https://ghcr.io/token?scope=repository:${name}:pull`);
-    if (!tok.ok) return `${where}: ${im.role}: no pull token for ${name} (package private?) HTTP ${tok.status}`;
+    if (!tok.ok) return fail(`${where}: ${im.role}: no pull token for ${name} (package private?) HTTP ${tok.status}`);
     const token = ((await tok.json()) as { token: string }).token;
     const res = await fetcher(`https://ghcr.io/v2/${name}/manifests/${digest}`, { headers: { authorization: `Bearer ${token}`, accept: GHCR_ACCEPT } });
-    if (!res.ok) return `${where}: ${im.role}: manifest ${digest.slice(0, 19)}… not found in the mirror, HTTP ${res.status}`;
+    if (!res.ok) return fail(`${where}: ${im.role}: manifest ${digest.slice(0, 19)}… not found in the mirror, HTTP ${res.status}`);
     const got = `sha256:${sha("sha256", Buffer.from(await res.arrayBuffer())).toString("hex")}`;
-    if (got !== digest) return `${where}: ${im.role}: the mirror serves ${got} for ${digest}`;
+    if (got !== digest) return fail(`${where}: ${im.role}: the mirror serves ${got} for ${digest}`);
   }
-  const res = await fetcher(p.artifact.url, { redirect: "follow" });
-  if (!res.ok) return `${where}: tarball ${p.artifact.url} HTTP ${res.status}`;
+  const url = engineNpmUrl(p.product, p.version);
+  const res = await fetcher(url, { redirect: "follow" });
+  if (!res.ok) return fail(`${where}: upstream tarball ${url} HTTP ${res.status}`);
   const bytes = Buffer.from(await res.arrayBuffer());
-  if (`sha256:${sha("sha256", bytes).toString("hex")}` !== p.artifact.sha256) return `${where}: tarball sha256 differs from the pin`;
-  if (`sha512-${sha("sha512", bytes).toString("base64")}` !== p.artifact.integrity) return `${where}: tarball sha512 integrity differs from the pin`;
-  return null;
+  if (`sha256:${sha("sha256", bytes).toString("hex")}` !== p.artifact.sha256) return fail(`${where}: the upstream tarball's sha256 differs from the pin`);
+  if (`sha512-${sha("sha512", bytes).toString("base64")}` !== p.artifact.integrity)
+    return fail(`${where}: the upstream tarball's sha512 integrity differs from the pin`);
+  return { problem: null, tarball: bytes };
 }
 
 /** C206 R2-1: one legacy-owner location in a signed record moved to OWNER (same repo name; GitHub transfer). */
@@ -4461,6 +4479,17 @@ async function candidateFromTag(repo: string, tag: string, commit: string, rd: R
   return buildCandidateDoc(cfg, repo, tag, commit, (name) => ghcrFind(name, version));
 }
 
+/** Puts the verified engine tarball on this repo's release `engine-<product>-v<ver>` (created if absent) unless the asset is already
+ *  there. The dist mirror then copies it to the dist host named in the signed record. Never replaces an existing asset. */
+async function ensureEngineAsset(r: IndexRelease, tarball: Buffer): Promise<void> {
+  const rel = await ensureRelease(PLATFORM_REPO, r.tag as string, false);
+  const name = tarballName((ENGINE_PRODUCTS[r.product] as { npmPackage: string }).npmPackage, r.version);
+  const list = await gh("GET", `/repos/${repoFullName(PLATFORM_REPO)}/releases/${rel.id}/assets?per_page=100`);
+  if (list.status !== 200 || !Array.isArray(list.json)) fail(`list assets of release ${r.tag}: HTTP ${list.status}`);
+  if ((list.json as Array<{ name: string }>).some((a) => a.name === name)) return;
+  await putAsset(PLATFORM_REPO, rel, name, tarball, "application/gzip");
+}
+
 /** Platform signer pipeline (cron/manual, platform repo only, holds release_signing_key):
  *  discover v* tags in the opt2 repos, derive and verify each release independently, add them, re-sign when anything changed. */
 async function cmdRegistrySync(): Promise<void> {
@@ -4560,11 +4589,15 @@ async function cmdRegistrySync(): Promise<void> {
   rejected.push(...engines.problems);
   for (const r of engines.add) {
     const pin = pins.find((x) => x.product === r.product && x.version === r.version && x.channel === r.channel) as EnginePin;
-    const problem = await verifyEnginePin(pin);
-    if (problem) rejected.push(problem);
+    const v = await verifyEnginePin(pin);
+    if (v.problem || !v.tarball) rejected.push(v.problem ?? `engine ${r.product}@${r.version}: no tarball`);
     else {
+      // the dist mirror copies the tarball from this repo's release `engine-<product>-v<ver>` (planMirror: dist tag = <repo>-<tag>)
+      await ensureEngineAsset(r, v.tarball);
       add.push(r);
-      log(`verified engine ${r.product}@${r.version} (${r.channel}): ${pin.images.length} images by digest, tarball hashes match`);
+      log(
+        `verified engine ${r.product}@${r.version} (${r.channel}): ${pin.images.length} images by digest, upstream tarball hashes match, release ${r.tag} has the asset`,
+      );
     }
   }
   const offersText = await ghFile(OFFERS_PATH, "main");
