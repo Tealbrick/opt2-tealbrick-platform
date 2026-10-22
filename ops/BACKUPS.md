@@ -33,3 +33,6 @@ Apps: baked into the Miniapp SDK (each app's backup volume in its Railway templa
 ## Cleanup note: opt2-test-customer orphaned volumes (2026-10-12)
 22 volumes left by Core's probe/e2e deploys (tb-bridge*, tb-knowledge*, vol-probe*; ~14 GB) have no attached service. Railway already shows every one with a scheduled `deletedAt` (2026-10-13 11:42 → 2026-10-14 00:04 UTC, = 48 h after detach), so Railway deletes them itself. None were deleted by hand. redis-volume and postgres-volume (attached, buzz-test-relay stack) untouched.
 - D8 clean-up (2026-10-12 ~05:03 UTC): after Core removed the probe, Platform deleted its three restore-copy volumes (`volumeDelete`): `tb-bridge-cJBb-2026-10-12 04:29 UTC` (8104ab58-…), `tb-knowledge-4vl--2026-10-12 04:29 UTC-47XW` (7deb1b58-…) and `tb-knowledge-4vl--2026-10-12 04:29 UTC` (264d395d-…, the first Knowledge restore whose staged swap was overwritten, never mounted). Railway keeps them 48 h in pending deletion. Redis/Postgres/buzz-test-relay volumes untouched.
+
+## Own-server workspace boxes (S1, C308)
+Boxes that run Openship are backed up off-box with restic, with a restore drill and an Openship upgrade/rollback drill: `ops/engine/README.md`. Until the drills pass on a real box the label is "preview: no customer data".
