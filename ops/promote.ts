@@ -15,9 +15,9 @@
 // Uses the operator's Railway CLI login and gh login; prints no variable values (it never reads variables).
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { railwayToken } from "./railway-token.ts";
 
 export const PROJECT = "15297ce5-0283-4901-a408-9c802e6ac53a"; // Railway project "opt2"
 /** C206: the opt2 repos live in the Tealbrick org (GitHub redirects the old Martin-Atrin paths; we do not rely on that). */
@@ -243,9 +243,7 @@ export function parseArgs(argv: readonly string[]): Options {
 const here = dirname(fileURLToPath(import.meta.url));
 
 function token(): string {
-  const t = (JSON.parse(readFileSync(join(homedir(), ".railway/config.json"), "utf8")) as { user?: { token?: string } }).user?.token;
-  if (!t) throw new Error("not logged in to the Railway CLI");
-  return t;
+  return railwayToken();
 }
 async function gql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   const res = await fetch("https://backboard.railway.com/graphql/v2", {
