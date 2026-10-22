@@ -19,6 +19,7 @@
   "manifest": { "repo": "Tealbrick/opt2-tealbrick-sdk", "kind": "package", "formerRepos": ["Martin-Atrin/opt2-tealbrick-sdk"] },
   "miniapp-sdk": { "repo": "Tealbrick/opt2-tealbrick-sdk", "kind": "package", "formerRepos": ["Martin-Atrin/opt2-tealbrick-sdk"] },
   "observer": { "repo": "Tealbrick/opt2-tealbrick-observer", "kind": "app" },
+  "openship": { "repo": "Tealbrick/opt2-tealbrick-platform", "kind": "engine" },
   "relay": { "repo": "Tealbrick/opt2-tealbrick-cli", "kind": "package", "formerRepos": ["Martin-Atrin/opt2-tealbrick-cli"] },
   "rules": { "repo": "Tealbrick/opt2-tealbrick-rules", "kind": "app", "formerRepos": ["Martin-Atrin/opt2-tealbrick-rules"] },
   "sample-caller": { "repo": "Tealbrick/opt2-tealbrick-samples", "kind": "app", "formerRepos": ["Martin-Atrin/opt2-tealbrick-samples"] },

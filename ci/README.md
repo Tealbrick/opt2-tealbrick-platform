@@ -1,4 +1,4 @@
-# opt2 CI standard (template ci-v9.18)
+# opt2 CI standard (template ci-v9.19)
 
 One Woodpecker pipeline for every opt2 repo. It is an enforced standard, not a convention:
 every repo's `.woodpecker/ci.yaml` is a byte-identical copy of `ci/woodpecker/ci.yaml`, and the
@@ -194,6 +194,8 @@ Never run a global `docker/podman system prune` on the CI host (shared daemon).
 4. Raise `ci/MIN_TEMPLATE` by a separate PR only after every repo in `OPT2_REPOS` runs the new template (`template-audit` shows it).
 
 ## Template history (newest first)
+ci-v9.19 (C308, S1): the registry-sync signer pins own-server engines. New index kind `engine` (Openship): `registry/engines.json` (PR only) lists the reviewed pins; the signer checks every mirrored image digest in ghcr and the npm tarball bytes itself, then adds a `kind: engine` record (immutable; stable only after an identical dev record). Core and every other reader skip the kind (L24). `products.json` binds `openship` to this repo as kind `engine`. Steps unchanged; `MIN_TEMPLATE` stays `ci-v9.9`.
+
 ci-v9.18 (C274): `release-record` and the registry-sync signer load `@opt2-tealbrick/manifest` 0.1.30 with `@opt2-tealbrick/spec` 0.1.57 (both sha512-pinned on the dist host; ajv 8.18.0 from the registry). Manifest 0.1.30 knows the spec 0.1.57 `events` field (MANIFEST §16, M-EV-1..4), so an app release that declares events validates in its own pipeline and in the signer; Core re-pins separately, and such a manifest needs bridge ≥ 0.2.7 (`requiredBridgeVersion`). Dry run before the change: all 170 app releases in the signed index (stable + dev) re-validate under 0.1.30 with an unchanged `manifestDigest`. Steps unchanged; `MIN_TEMPLATE` stays `ci-v9.9` (apps adopt ci-v9.18 when they declare events).
 
 ci-v9.17 (L68): boot smoke of the built miniapp. The `pre-release` step gains a second command, `boot-smoke` (kind miniapp only): it starts the built entry with a minimal env and requires a healthy health answer (HTTP 200, same version, status `ok` or `needs_keys`) for 5 s after the first one, an alive process and a complete UI import map. New optional field `bootSmoke` in `tealbrick-ci.json` (the only opt-out: reason + expiry at most 90 days). The release templates change only in the template id. `MIN_TEMPLATE` is unchanged. **Migration:** a repo re-runs `adopt`; a miniapp whose built output does not boot now fails its pipeline. Proof on a real Woodpecker run (fleet adopter) before the tag (L65).

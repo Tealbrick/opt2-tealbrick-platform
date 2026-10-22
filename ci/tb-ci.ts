@@ -203,8 +203,9 @@ export type ReleaseOn = "actions" | "woodpecker";
 /** PORTAL-API Release (types/routes.ts `Release`) plus provenance fields. */
 export type Channel = "stable" | "dev";
 /** Kinds of release-index entries. C174: `cli` = the tealbrick CLI tarball the C173 installer and `tealbrick self-update` verify.
- *  Readers skip kinds they do not know (L24); Core indexes app/bridge/desktop only. */
-export const INDEX_KINDS = ["app", "bridge", "desktop", "cli", "package"] as const;
+ *  Readers skip kinds they do not know (L24); Core indexes app/bridge/desktop only.
+ *  S1 (C308, M3): `engine` = a pinned own-server engine (Openship): npm tarball + container images by digest, see ENGINE_PRODUCTS. */
+export const INDEX_KINDS = ["app", "bridge", "desktop", "cli", "package", "engine"] as const;
 export type IndexKind = (typeof INDEX_KINDS)[number];
 /** A downloadable release file. `sha256` is `sha256:<hex>`; `integrity` (C174, required for kind cli) is the npm/pnpm lockfile
  *  value `sha512-<base64>` of the same bytes (the `.integrity` asset, ci-v9.5). */
@@ -236,6 +237,7 @@ export interface IndexRelease {
   publishedAt: string;
   devOnly?: true; // C113: DEV_ONLY_PRODUCTS (always channel dev); Core never offers or deploys it in a stable workspace
   promotedFrom?: string; // C207 E4: a stable record made by a recorded promotion of this dev record (same image + manifest digest)
+  engine?: EngineSpec; // S1 (C308, M3): kind engine only
 }
 
 /** Deploy recipe facts for the bridge service (apps carry these in their manifest `runtime`). */
@@ -633,6 +635,271 @@ export function promotionReleases(
     add.push({ ...rest, id: (opts.newId ?? (() => newId("rel")))(), channel: "stable", promotedFrom: dev.id, publishedAt: opts.now });
   }
   return { add, problems };
+}
+
+// ---------- S1 (C308, REDTEAM-S1 M3): own-server engine pins in the release index ----------
+// The host agent installs the engine (Openship) ONLY from what the root-signed index pins: the npm tarball by sha256/sha512 and
+// every container image by digest, all from OUR mirror. An engine bump is a PR to registry/engines.json (reviewed input, like
+// offers.json and promotions.json) and never `openship upgrade` on a box. The signer turns each pin into a release of kind
+// `engine` (Core and every other reader skip kinds they do not know, L24; the digest covers the whole body).
+
+export const ENGINES_PATH = "registry/engines.json";
+/** The five images the engine runs. Every one is pinned, also the dashboard that `up --no-ui` does not start (the pin stays
+ *  complete so a later UI switch cannot pull a mutable tag). */
+export const ENGINE_ROLES = ["api", "dashboard", "edge", "postgres", "redis"] as const;
+export type EngineRole = (typeof ENGINE_ROLES)[number];
+/** Our mirror namespace. An engine image is accepted only from here, by digest (never a tag, never the upstream registry). */
+export const ENGINE_MIRROR_NAMESPACE = "ghcr.io/tealbrick/mirror";
+/** Engines the platform may pin. Change by platform PR only (and by a decision). */
+export const ENGINE_PRODUCTS: Readonly<Record<string, { npmPackage: string; upstreamRepo: string; license: string }>> = {
+  openship: { npmPackage: "openship", upstreamRepo: "oblien/openship", license: "Apache-2.0" },
+};
+export const ENGINE_CHANNELS: readonly Channel[] = ["dev", "stable"];
+
+export interface EngineImage {
+  role: EngineRole;
+  /** ghcr.io/tealbrick/mirror/<name>@sha256:<hex> */
+  image: string;
+  /** Where the mirror copied it from (tag or digest ref, information for the review). */
+  upstream: string;
+}
+/** The `engine` field of an index record (kind engine). */
+export interface EngineSpec {
+  npmPackage: string;
+  upstreamRepo: string;
+  license: string;
+  /** Apache-2.0 LICENSE/NOTICE shipped with the mirror (https URL). */
+  noticeUrl: string;
+  images: EngineImage[];
+}
+/** One reviewed pin (registry/engines.json, PR only). */
+export interface EnginePin {
+  product: string;
+  /** The engine's own version (npm package version), e.g. 0.9.3. */
+  version: string;
+  /** dev = measured on a test box (H0 re-run); stable = needs the conformance, restore and upgrade drill evidence AND an identical dev record already indexed. */
+  channel: Channel;
+  artifact: ReleaseArtifact;
+  images: EngineImage[];
+  noticeUrl: string;
+  decision: string; // C<nnn>
+  reviewedBy: string;
+  reviewedAt: string; // ISO UTC
+  evidence: { h0: string; conformance?: string; restoreDrill?: string; upgradeDrill?: string };
+}
+
+const ENGINE_IMAGE_RE = new RegExp(`^${ENGINE_MIRROR_NAMESPACE.replace(/\./g, "\\.")}/([a-z0-9][a-z0-9._-]{0,60})@(sha256:[0-9a-f]{64})$`);
+const ENGINE_UPSTREAM_RE = /^[a-z0-9][a-z0-9./_-]{0,120}(?::[A-Za-z0-9._-]{1,64})?(?:@sha256:[0-9a-f]{64})?$/;
+const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+/** The only accepted URL of an engine tarball (our mirror on a dist host): `<dist base>/opt2-tealbrick-platform-engine-<product>-v<ver>/<npm name>-<ver>.tgz`. */
+export function engineTarballUrl(product: string, version: string, distBase: string = CLI_DIST_BASE): string {
+  const e = ENGINE_PRODUCTS[product];
+  if (!e) throw new Error(`${product} is not an engine product (ENGINE_PRODUCTS)`);
+  return releaseUrl(PLATFORM_REPO, `engine-${product}`, e.npmPackage, version, distBase);
+}
+
+/** What is wrong with an engine pin's content (null = fine): shared by the reviewed input and the index record (writers stay strict, L24). */
+export function engineContentProblem(c: {
+  product: string;
+  version: string;
+  artifact: ReleaseArtifact | null;
+  images: unknown;
+  noticeUrl: unknown;
+}): string | null {
+  const e = Object.hasOwn(ENGINE_PRODUCTS, c.product) ? ENGINE_PRODUCTS[c.product] : undefined;
+  if (!e) return `${c.product} is not an engine product (ENGINE_PRODUCTS: ${Object.keys(ENGINE_PRODUCTS).join(", ")})`;
+  if (!SEMVER_RE.test(c.version)) return `version ${JSON.stringify(c.version)} is not semver`;
+  const a = c.artifact;
+  if (!a || typeof a !== "object") return "an engine needs artifact {url, sha256, integrity} (the mirrored npm tarball)";
+  const extra = Object.keys(a).filter((k) => !["url", "sha256", "integrity"].includes(k));
+  if (extra.length) return `artifact has unknown field(s) ${extra.join(", ")}`;
+  if (typeof a.url !== "string" || !DIST_BASES.some((b) => a.url === engineTarballUrl(c.product, c.version, b)))
+    return `artifact.url must be <dist base>/${PLATFORM_REPO}-engine-${c.product}-v${c.version}/${tarballName(e.npmPackage, c.version)} on a platform dist host (${DIST_BASES.join(", ")}); got ${JSON.stringify(a.url)}`;
+  if (typeof a.sha256 !== "string" || !SHA256_RE.test(a.sha256)) return "artifact.sha256 must be sha256:<64 hex>";
+  if (typeof a.integrity !== "string" || !SHA512_INTEGRITY_RE.test(a.integrity))
+    return "artifact.integrity must be sha512-<88 base64 chars> (the npm lockfile value of the same bytes)";
+  if (typeof c.noticeUrl !== "string" || !/^https:\/\/[^\s]+$/.test(c.noticeUrl)) return "noticeUrl must be an https URL of the shipped LICENSE/NOTICE";
+  if (!Array.isArray(c.images)) return "images must be a list";
+  const seen = new Set<string>();
+  const digests = new Set<string>();
+  for (const [i, im] of (c.images as Record<string, unknown>[]).entries()) {
+    if (!im || typeof im !== "object" || Object.keys(im).sort().join(",") !== "image,role,upstream")
+      return `images[${i}]: fields must be exactly role, image, upstream`;
+    if (!(ENGINE_ROLES as readonly string[]).includes(im.role as string)) return `images[${i}].role must be ${ENGINE_ROLES.join("|")}`;
+    if (seen.has(im.role as string)) return `images: role ${String(im.role)} appears twice`;
+    seen.add(im.role as string);
+    if (typeof im.image !== "string" || !ENGINE_IMAGE_RE.test(im.image))
+      return `images[${i}] (${String(im.role)}): image must be ${ENGINE_MIRROR_NAMESPACE}/<name>@sha256:<64 hex> (our mirror, by digest, never a tag)`;
+    if (typeof im.upstream !== "string" || !ENGINE_UPSTREAM_RE.test(im.upstream))
+      return `images[${i}] (${String(im.role)}): upstream must be a plain image reference (no scheme, no spaces)`;
+    const d = (ENGINE_IMAGE_RE.exec(im.image) as RegExpExecArray)[2] as string;
+    if (digests.has(d)) return `images[${i}] (${String(im.role)}): digest repeats another role (a pin must not reuse one image for two roles)`;
+    digests.add(d);
+  }
+  const missing = ENGINE_ROLES.filter((r) => !seen.has(r));
+  if (missing.length) return `images: missing role(s) ${missing.join(", ")} (all of ${ENGINE_ROLES.join(", ")} are pinned)`;
+  return null;
+}
+
+/** What is wrong with a `kind: engine` index record (null = fine). mergeIndex refuses any other shape. */
+export function engineEntryProblem(r: IndexRelease): string | null {
+  if (r.kind !== "engine") return "not an engine entry";
+  const e = r.engine;
+  if (!e || typeof e !== "object") return "an engine record needs the engine field";
+  const p = Object.hasOwn(ENGINE_PRODUCTS, r.product) ? ENGINE_PRODUCTS[r.product] : undefined;
+  const extra = Object.keys(e).filter((k) => !["npmPackage", "upstreamRepo", "license", "noticeUrl", "images"].includes(k));
+  if (extra.length) return `engine has unknown field(s) ${extra.join(", ")}`;
+  if (p && (e.npmPackage !== p.npmPackage || e.upstreamRepo !== p.upstreamRepo || e.license !== p.license))
+    return `engine must say npmPackage ${p.npmPackage}, upstreamRepo ${p.upstreamRepo}, license ${p.license}`;
+  const problem = engineContentProblem({ product: r.product, version: r.version, artifact: r.artifact, images: e.images, noticeUrl: e.noticeUrl });
+  if (problem) return problem;
+  if (!ENGINE_CHANNELS.includes(r.channel)) return `channel must be ${ENGINE_CHANNELS.join("|")}`;
+  if (r.repo !== `${OWNER}/${PLATFORM_REPO}`) return `an engine record comes from ${OWNER}/${PLATFORM_REPO} (it is reviewed there), got ${r.repo}`;
+  if (r.image || r.source || r.runtime || r.services?.length || r.manifestDigest || r.manifestUrl || r.skillsDigest || r.devOnly || r.promotedFrom)
+    return "an engine record carries only artifact and engine (no image, source, runtime, services, manifest, devOnly or promotedFrom)";
+  if (r.minOs !== null || r.notarized !== null) return "minOs/notarized are desktop fields";
+  return null;
+}
+
+/** registry/engines.json: the reviewed pins. Strict (unknown fields refused); a stable pin needs all drill evidence. */
+export function validateEngines(raw: unknown): EnginePin[] {
+  if (!Array.isArray(raw)) throw new Error("engines.json must be an array");
+  const iso = (v: unknown) => typeof v === "string" && !Number.isNaN(Date.parse(v)) && /T.*Z$/.test(v);
+  const seen = new Set<string>();
+  return raw.map((x, i) => {
+    const p = x as Record<string, unknown>;
+    const bad = (m: string): never => {
+      throw new Error(`engines[${i}]: ${m}`);
+    };
+    if (!p || typeof p !== "object" || Array.isArray(p)) bad("must be an object");
+    const allowed = ["product", "version", "channel", "artifact", "images", "noticeUrl", "decision", "reviewedBy", "reviewedAt", "evidence"];
+    const extra = Object.keys(p).filter((k) => !allowed.includes(k));
+    if (extra.length) bad(`unknown field(s) ${extra.join(", ")}`);
+    const missing = allowed.filter((k) => !(k in p));
+    if (missing.length) bad(`missing field(s) ${missing.join(", ")}`);
+    if (!ENGINE_CHANNELS.includes(p.channel as Channel)) bad(`channel must be ${ENGINE_CHANNELS.join("|")}`);
+    const problem = engineContentProblem({
+      product: p.product as string,
+      version: p.version as string,
+      artifact: p.artifact as ReleaseArtifact,
+      images: p.images,
+      noticeUrl: p.noticeUrl,
+    });
+    if (problem) bad(problem);
+    if (typeof p.decision !== "string" || !/^C\d{2,4}[a-z]?$/.test(p.decision)) bad("decision (C<nnn>)");
+    if (typeof p.reviewedBy !== "string" || p.reviewedBy.length < 2) bad("reviewedBy");
+    if (!iso(p.reviewedAt)) bad("reviewedAt (ISO UTC)");
+    const ev = p.evidence as Record<string, unknown> | undefined;
+    if (!ev || typeof ev !== "object" || Array.isArray(ev)) bad("evidence");
+    const e = ev as Record<string, unknown>;
+    const extraEv = Object.keys(e).filter((k) => !["h0", "conformance", "restoreDrill", "upgradeDrill"].includes(k));
+    if (extraEv.length) bad(`unknown evidence field(s) ${extraEv.join(", ")}`);
+    const ref = (v: unknown) => typeof v === "string" && v.length >= 5 && !/\s/.test(v);
+    if (!ref(e.h0)) bad("evidence.h0 (reference of the H0 measurement on a test box)");
+    for (const k of ["conformance", "restoreDrill", "upgradeDrill"])
+      if (e[k] !== undefined && !ref(e[k])) bad(`evidence.${k} must be a reference without spaces`);
+    if (p.channel === "stable")
+      for (const k of ["conformance", "restoreDrill", "upgradeDrill"])
+        if (!ref(e[k])) bad(`a stable engine pin needs evidence.${k} (compose+Caddy fixture conformance, restore drill and upgrade+restore drill passed)`);
+    const key = `${p.product}@${p.version}@${p.channel}`;
+    if (seen.has(key)) bad(`${key} appears twice`);
+    seen.add(key);
+    return p as unknown as EnginePin;
+  });
+}
+
+function engineRecord(p: EnginePin, id: string, now: string): IndexRelease {
+  const e = ENGINE_PRODUCTS[p.product] as (typeof ENGINE_PRODUCTS)[string];
+  return {
+    id,
+    product: p.product,
+    kind: "engine",
+    version: p.version,
+    channel: p.channel,
+    manifestDigest: null,
+    manifestUrl: null,
+    skillsDigest: null,
+    image: null,
+    artifact: { url: p.artifact.url, sha256: p.artifact.sha256, integrity: p.artifact.integrity as string },
+    source: null,
+    runtime: null,
+    minOs: null,
+    notarized: null,
+    upgradeFrom: "*",
+    repo: `${OWNER}/${PLATFORM_REPO}`,
+    commit: null,
+    tag: null,
+    publishedAt: now,
+    engine: {
+      npmPackage: e.npmPackage,
+      upstreamRepo: e.upstreamRepo,
+      license: e.license,
+      noticeUrl: p.noticeUrl,
+      images: ENGINE_ROLES.map((role) => p.images.find((im) => im.role === role) as EngineImage),
+    },
+  };
+}
+
+/** The engine records the reviewed pins add to `index` (pure). A pin that is already in the index with the same content is
+ *  skipped; one that differs from an indexed record of the same (product, version, channel) is a problem (records are
+ *  immutable: bump the version). A stable pin needs an identical DEV record in the index first (the soak step). */
+export function engineReleases(
+  index: { releases: IndexRelease[] },
+  pins: EnginePin[],
+  opts: { now: string; newId?: () => string },
+): { add: IndexRelease[]; problems: string[] } {
+  const add: IndexRelease[] = [];
+  const problems: string[] = [];
+  for (const p of pins) {
+    const where = `engine ${p.product}@${p.version} (${p.channel})`;
+    const draft = engineRecord(p, "rel_00000000000000000000000000", opts.now);
+    const same = (r: IndexRelease) => JSON.stringify([r.artifact, r.engine]) === JSON.stringify([draft.artifact, draft.engine]);
+    const old = index.releases.find((r) => r.kind === "engine" && r.product === p.product && r.version === p.version && r.channel === p.channel);
+    if (old) {
+      if (!same(old)) problems.push(`${where}: already indexed with other content (records are immutable; pin a new version)`);
+      continue;
+    }
+    if (p.channel === "stable") {
+      const dev = index.releases.find((r) => r.kind === "engine" && r.product === p.product && r.version === p.version && r.channel === "dev");
+      if (!dev) {
+        problems.push(`${where}: no dev record of this version in the index yet (pin it on dev first, then promote with the same content)`);
+        continue;
+      }
+      if (!same(dev)) {
+        problems.push(`${where}: differs from the dev record ${dev.id} (a stable pin copies the dev pin)`);
+        continue;
+      }
+    }
+    add.push(engineRecord(p, (opts.newId ?? (() => newId("rel")))(), opts.now));
+  }
+  return { add, problems };
+}
+
+/** The signer's independent check of one pin before it signs: every mirrored image manifest exists in ghcr under its digest
+ *  (the manifest bytes hash to the digest) and the tarball bytes hash to the pinned sha256 and sha512. Null = verified. */
+export async function verifyEnginePin(p: EnginePin, fetcher: typeof fetch = fetch): Promise<string | null> {
+  const sha = (alg: "sha256" | "sha512", b: Buffer) => createHash(alg).update(b).digest();
+  const where = `engine ${p.product}@${p.version}`;
+  for (const im of p.images) {
+    const m = ENGINE_IMAGE_RE.exec(im.image);
+    if (!m) return `${where}: bad image ref ${im.image}`;
+    const name = `tealbrick/mirror/${m[1]}`;
+    const digest = m[2] as string;
+    const tok = await fetcher(`https://ghcr.io/token?scope=repository:${name}:pull`);
+    if (!tok.ok) return `${where}: ${im.role}: no pull token for ${name} (package private?) HTTP ${tok.status}`;
+    const token = ((await tok.json()) as { token: string }).token;
+    const res = await fetcher(`https://ghcr.io/v2/${name}/manifests/${digest}`, { headers: { authorization: `Bearer ${token}`, accept: GHCR_ACCEPT } });
+    if (!res.ok) return `${where}: ${im.role}: manifest ${digest.slice(0, 19)}… not found in the mirror, HTTP ${res.status}`;
+    const got = `sha256:${sha("sha256", Buffer.from(await res.arrayBuffer())).toString("hex")}`;
+    if (got !== digest) return `${where}: ${im.role}: the mirror serves ${got} for ${digest}`;
+  }
+  const res = await fetcher(p.artifact.url, { redirect: "follow" });
+  if (!res.ok) return `${where}: tarball ${p.artifact.url} HTTP ${res.status}`;
+  const bytes = Buffer.from(await res.arrayBuffer());
+  if (`sha256:${sha("sha256", bytes).toString("hex")}` !== p.artifact.sha256) return `${where}: tarball sha256 differs from the pin`;
+  if (`sha512-${sha("sha512", bytes).toString("base64")}` !== p.artifact.integrity) return `${where}: tarball sha512 integrity differs from the pin`;
+  return null;
 }
 
 /** C206 R2-1: one legacy-owner location in a signed record moved to OWNER (same repo name; GitHub transfer). */
@@ -1172,7 +1439,7 @@ export interface ProductBinding {
 }
 export type ProductBindings = Record<string, ProductBinding>;
 
-/** GTP-01: registry/products.json = { "<product>": { "repo": "Tealbrick/opt2-tealbrick-<name>", "kind": "app"|"bridge"|"desktop"|"cli"|"package",
+/** GTP-01: registry/products.json = { "<product>": { "repo": "Tealbrick/opt2-tealbrick-<name>", "kind": "app"|"bridge"|"desktop"|"cli"|"package"|"engine",
  *  "formerRepos"?: ["Martin-Atrin/opt2-tealbrick-<same name>"] } }. */
 export function validateProducts(raw: unknown): ProductBindings {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("products.json must be an object { product: { repo, kind } }");
@@ -1617,7 +1884,7 @@ export function mergeIndex(
         throw new Error(`${r.product}@${r.version}: promotion must copy dev record ${from.id} (same product, version, image, manifest digest)`);
     }
     if (!(INDEX_KINDS as readonly string[]).includes(r.kind)) throw new Error(`${r.product}@${r.version}: unknown kind ${JSON.stringify(r.kind)}`);
-    const fileKind = r.kind === "desktop" || r.kind === "cli" || r.kind === "package"; // released as a downloadable file, not an image
+    const fileKind = r.kind === "desktop" || r.kind === "cli" || r.kind === "package" || r.kind === "engine"; // released as a downloadable file (engine: tarball + mirrored images in `engine`), not an app image
     if (!fileKind && r.channel === "stable" && !r.image)
       throw new Error(`${r.product}@${r.version}: a stable release needs an image digest (source builds are dev only, C29)`);
     if (!fileKind && !r.image && !r.source) throw new Error(`${r.product}@${r.version}: needs image or source`);
@@ -1625,6 +1892,10 @@ export function mergeIndex(
       const problem = distEntryProblem(r);
       if (problem) throw new Error(`${r.product}@${r.version}: ${problem}`);
     }
+    if (r.kind === "engine") {
+      const problem = engineEntryProblem(r);
+      if (problem) throw new Error(`${r.product}@${r.version}: ${problem}`);
+    } else if (r.engine !== undefined) throw new Error(`${r.product}@${r.version}: the engine field belongs to kind engine only`);
     if ((r.kind === "bridge") !== (r.runtime !== null && r.runtime !== undefined))
       throw new Error(`${r.product}@${r.version}: runtime is required for kind bridge and only allowed there`);
     if (bindings) {
@@ -1643,8 +1914,9 @@ export function mergeIndex(
         old.image !== r.image ||
         old.artifact?.sha256 !== r.artifact?.sha256 ||
         old.artifact?.integrity !== r.artifact?.integrity ||
-        ((r.kind === "cli" || r.kind === "package") && old.artifact?.url !== r.artifact?.url) ||
+        ((r.kind === "cli" || r.kind === "package" || r.kind === "engine") && old.artifact?.url !== r.artifact?.url) ||
         old.manifestDigest !== r.manifestDigest ||
+        JSON.stringify(old.engine ?? null) !== JSON.stringify(r.engine ?? null) ||
         old.source?.ref !== r.source?.ref ||
         (old.source?.context ?? ".") !== (r.source?.context ?? ".")
       )
@@ -4282,6 +4554,19 @@ async function cmdRegistrySync(): Promise<void> {
     log(`promoted ${r.product}@${r.version} to stable from ${r.promotedFrom}`);
   }
   rejected.push(...promoted.problems);
+  // S1 (C308, M3): reviewed engine pins -> kind engine records; the signer re-checks the bytes and digests itself
+  const pins = validateEngines(JSON.parse((await ghFile(ENGINES_PATH, "main")) ?? "[]"));
+  const engines = engineReleases(index ?? { releases: [] }, pins, { now: new Date().toISOString() });
+  rejected.push(...engines.problems);
+  for (const r of engines.add) {
+    const pin = pins.find((x) => x.product === r.product && x.version === r.version && x.channel === r.channel) as EnginePin;
+    const problem = await verifyEnginePin(pin);
+    if (problem) rejected.push(problem);
+    else {
+      add.push(r);
+      log(`verified engine ${r.product}@${r.version} (${r.channel}): ${pin.images.length} images by digest, tarball hashes match`);
+    }
+  }
   const offersText = await ghFile(OFFERS_PATH, "main");
   const harnessesText = await ghFile(HARNESSES_PATH, "main");
   const offersChanged = JSON.stringify(validateOffers(offersText ? JSON.parse(offersText) : [])) !== JSON.stringify(index?.offers ?? []);

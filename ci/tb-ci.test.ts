@@ -49,6 +49,12 @@ import {
   distVersionWanted,
   dockerfileInstallProblems,
   dockerfileVolumeLines,
+  ENGINE_MIRROR_NAMESPACE,
+  ENGINE_ROLES,
+  type EnginePin,
+  engineEntryProblem,
+  engineReleases,
+  engineTarballUrl,
   expectedGenFiles,
   GH_WORKFLOW_PATH,
   ghcrFind,
@@ -135,11 +141,13 @@ import {
   uploadTarget,
   validateBridgeRuntime,
   validateConfig,
+  validateEngines,
   validateHarnesses,
   validateIgnoredTags,
   validateOffers,
   validateProducts,
   validatePromotions,
+  verifyEnginePin,
   verifyImageProvenance,
   verifyOwnerRewrites,
   versionFromTag,
@@ -1247,9 +1255,9 @@ test("ci-v9.6 template: pre-release step after gen; image-check and release-reco
     "node .tb-ci/tb-ci.ts pre-release\nnode .tb-ci/tb-ci.ts boot-smoke",
     "ci-v9.17: the boot smoke runs after the preReleaseChecks, in the same step",
   );
-  assert.match(tpl.split("\n")[0] as string, /ci-v9\.18/, "current template (ci-v9.18 keeps the ci-v9.6 pre-release step)");
+  assert.match(tpl.split("\n")[0] as string, /ci-v9\.19/, "current template (ci-v9.19 keeps the ci-v9.6 pre-release step)");
   const wf = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(wf, /TB_CI_REF: ci-v9\.18/);
+  assert.match(wf, /TB_CI_REF: ci-v9\.19/);
   const runner = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
   const build = runner.slice(runner.indexOf("async function cmdGhBuild"), runner.indexOf("async function cmdGhPublish"));
   assert.ok(build.indexOf("runPreReleaseChecks(cfg, root)") > 0, "gh-build runs the checks on the tag");
@@ -1321,7 +1329,7 @@ const cliEntry = (over: Partial<IndexRelease> = {}): IndexRelease => {
 test("C174: cli entry shape from a fixture release (dist URL, sha256 + sha512 integrity, nothing else)", () => {
   const f = cliFixture();
   const r = cliEntry();
-  assert.deepEqual(INDEX_KINDS, ["app", "bridge", "desktop", "cli", "package"]);
+  assert.deepEqual(INDEX_KINDS, ["app", "bridge", "desktop", "cli", "package", "engine"]);
   assert.equal(r.kind, "cli");
   assert.equal(r.product, "cli");
   assert.equal(r.channel, "stable");
@@ -2178,6 +2186,198 @@ test("C207 E4: new app/bridge tags land on dev; stable only by a recorded promot
   assert.doesNotThrow(() => validatePromotions(committed));
 });
 
+// ---------- S1 (C308, M3): engine pins in the release index ----------
+
+const hex = (c: string) => c.repeat(64);
+const engineBytes = Buffer.from("fake openship tarball");
+const enginePin = (over: Record<string, unknown> = {}) => ({
+  product: "openship",
+  version: "0.9.3",
+  channel: "dev",
+  artifact: {
+    url: engineTarballUrl("openship", "0.9.3"),
+    sha256: `sha256:${createHash("sha256").update(engineBytes).digest("hex")}`,
+    integrity: `sha512-${createHash("sha512").update(engineBytes).digest("base64")}`,
+  },
+  images: ENGINE_ROLES.map((role, i) => ({
+    role,
+    image: `${ENGINE_MIRROR_NAMESPACE}/openship-${role}@sha256:${hex("0123456789abcdef"[i] as string)}`,
+    upstream: `ghcr.io/oblien/openship-${role}:0.9.3`,
+  })),
+  noticeUrl: "https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/engine-openship-v0.9.3/NOTICE",
+  decision: "C308",
+  reviewedBy: "platform lead",
+  reviewedAt: "2026-10-23T08:00:00Z",
+  evidence: { h0: "leads/host-agent/H0-RERUN.md" },
+  ...over,
+});
+
+test("engine pins: validateEngines is strict and the committed file is valid", () => {
+  const [p] = validateEngines([enginePin()]);
+  assert.equal((p as { product: string }).product, "openship");
+  assert.deepEqual(validateEngines([]), []);
+  const committed = JSON.parse(readFileSync(new URL("../registry/engines.json", import.meta.url), "utf8"));
+  assert.doesNotThrow(() => validateEngines(committed));
+  assert.throws(() => validateEngines({}), /array/);
+  assert.throws(() => validateEngines([enginePin({ extra: 1 })]), /unknown field/);
+  assert.throws(() => validateEngines([enginePin({ product: "coolify" })]), /not an engine product/);
+  assert.throws(() => validateEngines([enginePin({ version: "0.9" })]), /semver/);
+  assert.throws(() => validateEngines([enginePin({ channel: "beta" })]), /channel/);
+  assert.throws(() => validateEngines([enginePin({ decision: "x" })]), /decision/);
+  assert.throws(() => validateEngines([enginePin({ reviewedAt: "yesterday" })]), /reviewedAt/);
+  assert.throws(() => validateEngines([enginePin(), enginePin()]), /twice/);
+  assert.throws(() => validateEngines([enginePin({ evidence: {} })]), /evidence\.h0/);
+  assert.throws(() => validateEngines([enginePin({ evidence: { h0: "ref.md", other: "x" } })]), /unknown evidence/);
+  // a tarball URL must be OUR mirror path for exactly this version
+  const a = enginePin().artifact;
+  assert.throws(() => validateEngines([enginePin({ artifact: { ...a, url: "https://registry.npmjs.org/openship/-/openship-0.9.3.tgz" } })]), /artifact\.url/);
+  assert.throws(() => validateEngines([enginePin({ artifact: { ...a, url: engineTarballUrl("openship", "0.9.2") } })]), /artifact\.url/);
+  assert.throws(() => validateEngines([enginePin({ artifact: { ...a, sha256: "sha256:abc" } })]), /sha256/);
+  assert.throws(() => validateEngines([enginePin({ artifact: { ...a, integrity: "sha512-abc" } })]), /integrity/);
+  assert.throws(() => validateEngines([enginePin({ artifact: { url: a.url, sha256: a.sha256 } })]), /integrity/);
+  assert.throws(() => validateEngines([enginePin({ noticeUrl: "http://x" })]), /noticeUrl/);
+});
+
+test("engine pins: every image is pinned by digest in our mirror, all five roles, no reuse", () => {
+  const pin = enginePin();
+  const images = pin.images;
+  const withImage = (i: number, over: Record<string, unknown>) => images.map((im, j) => (i === j ? { ...im, ...over } : im));
+  assert.throws(() => validateEngines([enginePin({ images: images.slice(1) })]), /missing role\(s\) api/);
+  assert.throws(() => validateEngines([enginePin({ images: [...images, images[0]] })]), /appears twice/);
+  assert.throws(() => validateEngines([enginePin({ images: withImage(0, { image: "ghcr.io/oblien/openship-api:0.9.3" }) })]), /never a tag/);
+  assert.throws(() => validateEngines([enginePin({ images: withImage(0, { image: `ghcr.io/oblien/openship-api@sha256:${hex("a")}` }) })]), /our mirror/);
+  assert.throws(() => validateEngines([enginePin({ images: withImage(3, { image: `${ENGINE_MIRROR_NAMESPACE}/postgres:16-alpine` }) })]), /by digest/);
+  assert.throws(() => validateEngines([enginePin({ images: withImage(1, { role: "ui" }) })]), /role must be/);
+  assert.throws(() => validateEngines([enginePin({ images: withImage(1, { upstream: "docker pull x" }) })]), /upstream/);
+  assert.throws(() => validateEngines([enginePin({ images: withImage(1, { image: images[0]?.image }) })]), /reuse one image/);
+  assert.throws(() => validateEngines([enginePin({ images: withImage(1, { note: "x" }) })]), /fields must be exactly/);
+});
+
+test("engine pins: a stable pin needs all drill evidence and an identical dev record first", () => {
+  const drills = { h0: "h0.md", conformance: "fixture-run-1", restoreDrill: "restore-drill-1", upgradeDrill: "upgrade-drill-1" };
+  assert.throws(() => validateEngines([enginePin({ channel: "stable" })]), /needs evidence\.conformance/);
+  assert.throws(() => validateEngines([enginePin({ channel: "stable", evidence: { ...drills, restoreDrill: undefined } })]), /restoreDrill/);
+  const [dev] = validateEngines([enginePin()]) as never[];
+  const [stable] = validateEngines([enginePin({ channel: "stable", evidence: drills })]) as never[];
+  const ids = ["rel_01M5EEEEEEEEEEEEEEEEEEEEE0", "rel_01M5EEEEEEEEEEEEEEEEEEEEE1"];
+  let n = 0;
+  const opts = { now: "2026-10-23T09:00:00.000Z", newId: () => ids[n++] as string };
+  // stable first: refused
+  assert.match(engineReleases({ releases: [] }, [stable], opts).problems.join(), /no dev record/);
+  const first = engineReleases({ releases: [] }, [dev], opts);
+  assert.deepEqual(first.problems, []);
+  const devRec = first.add[0] as IndexRelease;
+  assert.equal(devRec.kind, "engine");
+  assert.equal(devRec.id, ids[0]);
+  assert.equal(devRec.image, null);
+  assert.equal(devRec.engine?.images.length, 5);
+  assert.deepEqual(
+    devRec.engine?.images.map((i) => i.role),
+    [...ENGINE_ROLES],
+  );
+  assert.equal(devRec.repo, "Tealbrick/opt2-tealbrick-platform");
+  assert.equal(engineEntryProblem(devRec), null);
+  // idempotent
+  assert.deepEqual(engineReleases({ releases: [devRec] }, [dev], opts), { add: [], problems: [] });
+  // stable after dev: a copy with a new id and channel stable
+  const second = engineReleases({ releases: [devRec] }, [dev, stable], opts);
+  assert.deepEqual(second.problems, []);
+  assert.equal(second.add.length, 1);
+  assert.equal(second.add[0]?.channel, "stable");
+  assert.equal(second.add[0]?.id, ids[1]);
+  // a stable pin that differs from the dev record is refused
+  const other = validateEngines([
+    enginePin({
+      channel: "stable",
+      evidence: drills,
+      images: enginePin().images.map((im, i) => (i === 0 ? { ...im, image: `${ENGINE_MIRROR_NAMESPACE}/openship-api@sha256:${hex("f")}` } : im)),
+    }),
+  ]) as never[];
+  assert.match(engineReleases({ releases: [devRec] }, other, opts).problems.join(), /differs from the dev record/);
+  // an indexed record with other content is immutable
+  const changed = validateEngines([
+    enginePin({ images: enginePin().images.map((im, i) => (i === 2 ? { ...im, image: `${ENGINE_MIRROR_NAMESPACE}/openship-edge@sha256:${hex("e")}` } : im)) }),
+  ]) as never[];
+  assert.match(engineReleases({ releases: [devRec] }, changed, opts).problems.join(), /immutable/);
+});
+
+test("engine records: mergeIndex accepts only a well-formed engine record and binds it to the platform repo", () => {
+  const [pin] = validateEngines([enginePin()]) as never[];
+  const rec = engineReleases({ releases: [] }, [pin], { now: "2026-10-23T09:00:00.000Z", newId: () => "rel_01M5EEEEEEEEEEEEEEEEEEEEE0" })
+    .add[0] as IndexRelease;
+  const bindings = loadProductBindings();
+  assert.deepEqual(bindings.openship, { repo: "Tealbrick/opt2-tealbrick-platform", kind: "engine" });
+  const idx = mergeIndex(null, [rec], [], "t", [], bindings);
+  assert.equal(idx.releases.length, 1);
+  assert.equal(idx.releases[0]?.kind, "engine");
+  // the engine field is for kind engine only; an engine record needs it
+  assert.throws(() => mergeIndex(null, [{ ...rel({}), engine: rec.engine }], [], "t"), /engine field belongs to kind engine/);
+  assert.throws(() => mergeIndex(null, [{ ...rec, engine: undefined }], [], "t"), /needs the engine field/);
+  // no image/source/runtime on an engine record, repo fixed, channel dev|stable, tarball on the mirror path
+  assert.throws(() => mergeIndex(null, [{ ...rec, image: `ghcr.io/tealbrick/x@sha256:${hex("a")}` }], [], "t"), /carries only artifact and engine/);
+  assert.throws(() => mergeIndex(null, [{ ...rec, repo: "Tealbrick/opt2-tealbrick-bridge" }], [], "t"), /comes from Tealbrick\/opt2-tealbrick-platform/);
+  assert.throws(
+    () => mergeIndex(null, [{ ...rec, artifact: { ...(rec.artifact as object), url: "https://example.com/x.tgz" } as never }], [], "t"),
+    /artifact\.url/,
+  );
+  assert.throws(() => mergeIndex(null, [{ ...rec, engine: { ...(rec.engine as object), license: "MIT" } as never }], [], "t"), /license Apache-2\.0/);
+  // GTP-01: another repo cannot sign the engine product, and a platform record cannot sign another kind
+  assert.match(productBindingProblem(bindings, { product: "openship", kind: "engine", repo: "Tealbrick/opt2-tealbrick-cli" }) ?? "", /bound to/);
+  assert.match(productBindingProblem(bindings, { product: "openship", kind: "app", repo: "Tealbrick/opt2-tealbrick-platform" }) ?? "", /bound as kind engine/);
+  // immutable: the same (product, version, channel) with other bytes is refused
+  assert.throws(
+    () =>
+      mergeIndex(
+        idx,
+        [{ ...rec, id: "rel_01M5EEEEEEEEEEEEEEEEEEEEE1", artifact: { ...(rec.artifact as object), sha256: `sha256:${hex("9")}` } as never }],
+        [],
+        "t2",
+      ),
+    /already released with other content/,
+  );
+  // the record survives the JSON round trip the signer does
+  assert.deepEqual(JSON.parse(JSON.stringify(idx.releases[0])), idx.releases[0]);
+});
+
+test("engine pins: verifyEnginePin checks the mirror manifests and the tarball bytes", async () => {
+  const [pin] = validateEngines([enginePin()]) as [EnginePin];
+  const manifests = new Map<string, Buffer>();
+  const pinned = pin.images.map((im, i) => {
+    const body = Buffer.from(`manifest-${i}`);
+    return { ...im, image: im.image.replace(/@sha256:.*/, `@sha256:${createHash("sha256").update(body).digest("hex")}`), body };
+  });
+  for (const im of pinned) manifests.set(im.image.split("@")[1] as string, im.body);
+  const real = { ...pin, images: pinned.map(({ body: _b, ...im }) => im) };
+  const calls: string[] = [];
+  const fetcher = (async (url: string) => {
+    calls.push(url);
+    if (url.startsWith("https://ghcr.io/token")) return new Response(JSON.stringify({ token: "t" }));
+    const m = /manifests\/(sha256:[0-9a-f]{64})$/.exec(url);
+    if (m) {
+      const b = manifests.get(m[1] as string);
+      return b ? new Response(new Uint8Array(b)) : new Response("nope", { status: 404 });
+    }
+    if (url === pin.artifact.url) return new Response(new Uint8Array(engineBytes));
+    return new Response("?", { status: 500 });
+  }) as unknown as typeof fetch;
+  assert.equal(await verifyEnginePin(real, fetcher), null);
+  assert.ok(calls.some((u) => u.includes("scope=repository:tealbrick/mirror/openship-api:pull")));
+  // a manifest that is not in the mirror
+  manifests.delete(real.images[4]?.image.split("@")[1] as string);
+  assert.match((await verifyEnginePin(real, fetcher)) ?? "", /redis: manifest .* not found/);
+  // the mirror serves other bytes under the digest
+  manifests.set(real.images[4]?.image.split("@")[1] as string, Buffer.from("tampered"));
+  assert.match((await verifyEnginePin(real, fetcher)) ?? "", /redis: the mirror serves/);
+  manifests.set(real.images[4]?.image.split("@")[1] as string, pinned[4]?.body as Buffer);
+  // a tarball whose bytes differ
+  const badTar = (async (url: string, init?: RequestInit) =>
+    url === pin.artifact.url ? new Response("other bytes") : fetcher(url, init)) as unknown as typeof fetch;
+  assert.match((await verifyEnginePin(real, badTar)) ?? "", /tarball sha256 differs/);
+  const missingTar = (async (url: string, init?: RequestInit) =>
+    url === pin.artifact.url ? new Response("x", { status: 404 }) : fetcher(url, init)) as unknown as typeof fetch;
+  assert.match((await verifyEnginePin(real, missingTar)) ?? "", /HTTP 404/);
+});
+
 // ---------- ci-v9.10 (C222): releases of private repos on Woodpecker ----------
 
 const sha40 = (c: string) => c.repeat(40);
@@ -2263,7 +2463,7 @@ test("ci-v9.10 C222: a published asset is never replaced", () => {
 test("ci-v9.10 C222 template: release.yaml = build without secret, publish runs no repo code and alone reads the secret", () => {
   const rel = readFileSync(new URL("./woodpecker/release.yaml", import.meta.url), "utf8");
   const ci = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
-  assert.match(rel.split("\n")[0] as string, /template ci-v9\.18/);
+  assert.match(rel.split("\n")[0] as string, /template ci-v9\.19/);
   assert.match(rel, /GENERATED from Tealbrick\/opt2-tealbrick-platform: ci\/woodpecker\/release\.yaml/);
   const ref = /TB_CI_REF: (\S+)/.exec(ci)?.[1];
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
@@ -2434,11 +2634,11 @@ test("ci-v9.11 C232 template: step graph, secrets per step, no secret in any ste
   assert.match(rel, /GITHUB_TOKEN:\n {8}from_secret: tb_release_token\n/);
   // same template id and runner sha256 everywhere
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
-  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.18");
+  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.19");
   for (const m of rel.matchAll(/TB_CI_SHA256: "([^"]*)"/g)) assert.equal(m[1], sha);
   const actions = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(actions, /TB_CI_REF: ci-v9\.18/);
-  assert.match(ci, /TB_CI_REF: ci-v9\.18/);
+  assert.match(actions, /TB_CI_REF: ci-v9\.19/);
+  assert.match(ci, /TB_CI_REF: ci-v9\.19/);
   assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
 });
 
@@ -3162,7 +3362,7 @@ test("ci-v9.14 template: osv-scan after setup beside install, image pinned by di
   assert.equal(stepScript(tpl, "osv-check"), "node .tb-ci/tb-ci.ts osv-check .tb-ci/osv.json");
   // the id and the runner hash are the same in every generated file
   for (const f of ["woodpecker/ci.yaml", "woodpecker/release.yaml", "github/opt2-release.yml"])
-    assert.match(readFileSync(new URL(`./${f}`, import.meta.url), "utf8"), /ci-v9\.18/, f);
+    assert.match(readFileSync(new URL(`./${f}`, import.meta.url), "utf8"), /ci-v9\.19/, f);
   assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
   const readme = readFileSync(new URL("./README.md", import.meta.url), "utf8");
   assert.match(readme, /^ci-v9\.14 \(C262\)/m, "template history entry");
