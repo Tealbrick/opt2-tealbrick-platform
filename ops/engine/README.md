@@ -71,3 +71,33 @@ An engine bump is a pin in the signed index (`registry/engines.json` -> kind `en
 3. `upgrade.ts drill --pin <dev record>` on a box with a workspace (bridge + Knowledge) running; the bridge answers throughout.
 4. `restore.ts restore --confirm-empty-box` on a throwaway VPS from that snapshot; the host agent re-applies; the bridge enrols with its old identity.
 5. Record the run ids in `registry/engines.json` evidence (`restoreDrill`, `upgradeDrill`) before a stable pin.
+
+## Exit path: engine contract, conformance suite, compose+Caddy fixture (`fixture/`)
+REDTEAM M2: "behind our adapter" is an exit path only if the contract, not Openship, defines the features and a second tiny engine passes the
+same suite on every host-agent release. Tripwires that start the swap are in `SPRINT-S1-OWN-VPS.md` (no release 60 d, unpatched critical 7 d /
+high 14 d, breaking API without migration, main author inactive 45 d, reproduced container-to-host escape unfixed 14 d, licence/telemetry
+change, headless/token grants removed, adapter upkeep > 5 lead-days per quarter).
+
+| File | What |
+|---|---|
+| `fixture/contract.ts` | `EngineAdapter` (what the host agent needs from ANY engine), `StackSpec`, `HostServiceSpec` (copy of the S1-0 draft section 4; replace with the spec 0.1.58 types), `SpecRefusal` |
+| `fixture/schema.ts` | `validateServiceSpec` / `validateStack`: the closed schema as code (forbidden fields refused by name, digest images, named volumes, bridge-only public, hosts inside the zone, refs inside the stack) |
+| `fixture/compose-caddy.ts` | `ComposeCaddyAdapter`: generates one compose project per workspace + one Caddy per box (host network, loopback upstream); never takes compose from outside |
+| `fixture/conformance.ts` | `runConformance(adapter, { live? })`: rows E-1..E-10 (pure, CI) and L-1..L-3 (a box with Docker) |
+| `fixture/run.ts` | CLI: static rows, or `TB_FIXTURE_LIVE=1 TB_FIXTURE_IMAGE=<digest ref>` for the live rows |
+
+`EngineAdapter` (all methods take the closed `StackSpec`; the host agent does the signature, index and local-policy checks BEFORE it calls them):
+`render(stack): Rendered` (pure; throws `SpecRefusal`; returns every document the engine would receive), `apply(stack)` (idempotent; stopped services stay
+stopped), `stop(workspace, service)` (keeps volumes), `status(workspace)`, `originsFor(stack)` (value of `TB_OWN_INFRA_ORIGINS`), `volumesOf(workspace)`,
+`scopeOf(stack)` (networks and volumes it would create). Rows: E-1 the two B3 namespace-escape probes (`network_mode: container:<edge>`, `pid: container:<api>`) and
+`network_mode: host` refused (= H-8) · E-2 every privilege/host field refused by name, unknown fields refused · E-3 digest-only images, `tb-*` single-label names ·
+E-4 named volumes only · E-5 only the bridge is public, hosts inside the zone · E-6 no escape token in the rendered output, only loopback ports · E-7 exact origins
+(= H-10 source) · E-8 deterministic, no secret value in render · E-9 no shared network/volume between workspaces · E-10 refs stay inside the stack · L-1 apply
+brings the service up from its digest · L-2 idempotent · L-3 stop keeps volumes (= H-9). H-1..H-7 (signature, replay, index, downgrade, env) and H-11 (firewall
+from an app network) are agent/QA rows, not adapter rows.
+
+For Lead B: implement `EngineAdapter` for Openship (its `render` returns the API payloads it would send, as text documents) and call `runConformance` from the
+host-agent tests and from the release gate, next to this fixture. Import these files by copy with provenance or from a vendored path; they have no dependencies.
+Gaps on purpose: egress control for agent containers, the firewall and TLS issuance are the agent's job (H-11 and S1-6), not the engine's; the fixture's
+Caddy needs `caddyImage` pinned by digest by whoever runs it (no default, a default would be a floating pin); `serviceRefs.env` is read as "the referenced
+service's env entry or generated secret of that name" - the S1-0 contract must say it.
