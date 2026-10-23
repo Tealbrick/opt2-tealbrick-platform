@@ -12,6 +12,7 @@
   "harness-claude": { "repo": "Tealbrick/opt2-tealbrick-cli", "kind": "package", "formerRepos": ["Martin-Atrin/opt2-tealbrick-cli"] },
   "harness-claude-legacy": { "repo": "Tealbrick/opt2-tealbrick-bridge", "kind": "package", "formerRepos": ["Martin-Atrin/opt2-tealbrick-bridge"] },
   "harness-eve": { "repo": "Tealbrick/opt2-tealbrick-cli", "kind": "package", "formerRepos": ["Martin-Atrin/opt2-tealbrick-cli"] },
+  "host": { "repo": "Tealbrick/opt2-tealbrick-cli", "kind": "package", "formerRepos": ["Martin-Atrin/opt2-tealbrick-cli"] },
   "inbox": { "repo": "Tealbrick/opt2-tealbrick-inbox", "kind": "app", "formerRepos": ["Martin-Atrin/opt2-tealbrick-inbox"] },
   "kanban": { "repo": "Tealbrick/opt2-tealbrick-kanban", "kind": "app", "formerRepos": ["Martin-Atrin/opt2-tealbrick-kanban"] },
   "knowledge": { "repo": "Tealbrick/opt2-tealbrick-knowledge", "kind": "app", "formerRepos": ["Martin-Atrin/opt2-tealbrick-knowledge"] },
