@@ -714,7 +714,7 @@ test("rollout test: live mode without a tag (a branch pipeline) is refused befor
 
 test("Dockerfile: base pinned by digest, git + openssh-client, non-root user, the plugin as ENTRYPOINT; VERSION is X.Y.Z", T, () => {
   const dockerfile = readFileSync(new URL("./Dockerfile", import.meta.url), "utf8");
-  assert.match(dockerfile, /^FROM node:24-alpine@sha256:[0-9a-f]{64}$/m);
+  assert.match(dockerfile, /^FROM node:24\.22\.1-alpine@sha256:[0-9a-f]{64}$/m);
   assert.match(dockerfile, /apk add --no-cache git openssh-client/);
   assert.match(dockerfile, /^USER deploy$/m);
   assert.match(dockerfile, /^ENTRYPOINT \["node", "\/app\/site-deploy\.ts"\]$/m);
