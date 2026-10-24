@@ -8,10 +8,12 @@ import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
 import {
+  AUDIT_ONLY_REPOS,
   addPnpmIntegrity,
   artifactSource,
   assetChecksums,
   assetDecision,
+  auditSkipReason,
   auditVerdict,
   BOOT_SMOKE_HEALTHY,
   BOOT_SMOKE_SKIP_MAX_DAYS,
@@ -1258,9 +1260,9 @@ test("ci-v9.6 template: pre-release step after gen; image-check and release-reco
     "node .tb-ci/tb-ci.ts pre-release\nnode .tb-ci/tb-ci.ts boot-smoke",
     "ci-v9.17: the boot smoke runs after the preReleaseChecks, in the same step",
   );
-  assert.match(tpl.split("\n")[0] as string, /ci-v9\.19/, "current template (ci-v9.19 keeps the ci-v9.6 pre-release step)");
+  assert.match(tpl.split("\n")[0] as string, /ci-v9\.21/, "current template (ci-v9.21 keeps the ci-v9.6 pre-release step)");
   const wf = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(wf, /TB_CI_REF: ci-v9\.19/);
+  assert.match(wf, /TB_CI_REF: ci-v9\.21/);
   const runner = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
   const build = runner.slice(runner.indexOf("async function cmdGhBuild"), runner.indexOf("async function cmdGhPublish"));
   assert.ok(build.indexOf("runPreReleaseChecks(cfg, root)") > 0, "gh-build runs the checks on the tag");
@@ -1296,6 +1298,7 @@ test("ci-v9.6 opt2-tealbrick-cli: in OPT2_REPOS and the activation list; no repo
       ["cli", { repo: `Tealbrick/${cliRepo}`, kind: "cli", formerRepos: former }],
       ["harness-claude", { repo: `Tealbrick/${cliRepo}`, kind: "package", formerRepos: former }],
       ["harness-eve", { repo: `Tealbrick/${cliRepo}`, kind: "package", formerRepos: former }],
+      ["host", { repo: `Tealbrick/${cliRepo}`, kind: "package", formerRepos: former }],
       ["relay", { repo: `Tealbrick/${cliRepo}`, kind: "package", formerRepos: former }],
     ],
   );
@@ -1633,6 +1636,16 @@ test("C154: an unreadable private repo is a loud registry-sync rejection naming 
   assert.equal(auditVerdict("opt2-tealbrick-knowledge", 404, "anonymous", "none", "ci-v7"), "FAIL");
   assert.equal(auditVerdict("opt2-tealbrick-bridge", 200, "read-token", "ci-v9.5", "ci-v7"), "OK");
   assert.equal(auditVerdict("opt2-tealbrick-bridge", 200, "anonymous", "ci-v6", "ci-v7"), "FAIL");
+  // C346 (ci-v9.21): an audit-only repo without read access is a SKIP whatever the reader; once readable it is judged like any repo
+  assert.equal(auditVerdict("opt2-tealbrick-admin", 404, "anonymous", "none", "ci-v7"), "SKIP");
+  assert.equal(auditVerdict("opt2-tealbrick-creative", 404, "read-token", "none", "ci-v7"), "SKIP");
+  assert.equal(auditVerdict("opt2-tealbrick-admin", 200, "read-token", "ci-v9.9", "ci-v7"), "OK");
+  assert.equal(auditVerdict("opt2-tealbrick-creative", 200, "read-token", "ci-v6", "ci-v7"), "FAIL");
+  assert.equal(auditVerdict("opt2-tealbrick-admin", 500, "read-token", "none", "ci-v7"), "FAIL", "only a 404 is 'no read access'");
+  assert.match(auditSkipReason("opt2-tealbrick-admin", "read-token"), /audit-only private repo, no read access \(TB_PRIVATE_READ_TOKEN has no access to it\)/);
+  assert.match(auditSkipReason("opt2-tealbrick-creative", "anonymous"), /no read access \(no TB_PRIVATE_READ_TOKEN on this runner\)/);
+  assert.equal(auditSkipReason("opt2-tealbrick-bridge", "anonymous"), "private and no TB_PRIVATE_READ_TOKEN on this runner");
+  assert.match(repoReadProblem("opt2-tealbrick-admin", "read ci.yaml", 404, "read-token"), /TB_PRIVATE_READ_TOKEN cannot read opt2-tealbrick-admin/);
   // registry-sync source: a non-200 tag list is a rejection, never iterated (a 404 body is an object, not a list)
   const src = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
   const sync = src.slice(src.indexOf("async function cmdRegistrySync"), src.indexOf("function argValue"));
@@ -2690,7 +2703,7 @@ test("ci-v9.10 C222: a published asset is never replaced", () => {
 test("ci-v9.10 C222 template: release.yaml = build without secret, publish runs no repo code and alone reads the secret", () => {
   const rel = readFileSync(new URL("./woodpecker/release.yaml", import.meta.url), "utf8");
   const ci = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
-  assert.match(rel.split("\n")[0] as string, /template ci-v9\.19/);
+  assert.match(rel.split("\n")[0] as string, /template ci-v9\.21/);
   assert.match(rel, /GENERATED from Tealbrick\/opt2-tealbrick-platform: ci\/woodpecker\/release\.yaml/);
   const ref = /TB_CI_REF: (\S+)/.exec(ci)?.[1];
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
@@ -2861,11 +2874,11 @@ test("ci-v9.11 C232 template: step graph, secrets per step, no secret in any ste
   assert.match(rel, /GITHUB_TOKEN:\n {8}from_secret: tb_release_token\n/);
   // same template id and runner sha256 everywhere
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
-  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.19");
+  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.21");
   for (const m of rel.matchAll(/TB_CI_SHA256: "([^"]*)"/g)) assert.equal(m[1], sha);
   const actions = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(actions, /TB_CI_REF: ci-v9\.19/);
-  assert.match(ci, /TB_CI_REF: ci-v9\.19/);
+  assert.match(actions, /TB_CI_REF: ci-v9\.21/);
+  assert.match(ci, /TB_CI_REF: ci-v9\.21/);
   assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
 });
 
@@ -3589,7 +3602,7 @@ test("ci-v9.14 template: osv-scan after setup beside install, image pinned by di
   assert.equal(stepScript(tpl, "osv-check"), "node .tb-ci/tb-ci.ts osv-check .tb-ci/osv.json");
   // the id and the runner hash are the same in every generated file
   for (const f of ["woodpecker/ci.yaml", "woodpecker/release.yaml", "github/opt2-release.yml"])
-    assert.match(readFileSync(new URL(`./${f}`, import.meta.url), "utf8"), /ci-v9\.19/, f);
+    assert.match(readFileSync(new URL(`./${f}`, import.meta.url), "utf8"), /ci-v9\.21/, f);
   assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
   const readme = readFileSync(new URL("./README.md", import.meta.url), "utf8");
   assert.match(readme, /^ci-v9\.14 \(C262\)/m, "template history entry");
@@ -3997,8 +4010,8 @@ test("ci-v9.17 boot smoke: pure helpers (parseBootSmoke, bootSmokeSkipProblems, 
   assert.equal(schema.properties.bootSmoke?.additionalProperties, false);
 });
 
-test("ci-v9.17 boot smoke: the log redaction equals the one in ops/wp-failed.ts", async () => {
-  const { redact } = (await import("../ops/wp-failed.ts")) as { redact: (s: string) => string };
+test("ci-v9.17 boot smoke: the log redaction equals the one in ops/redact.ts", async () => {
+  const { redact } = (await import("../ops/redact.ts")) as { redact: (s: string) => string };
   const samples = [
     `token ${"gh"}p_${"x1".repeat(15)} here`,
     `${"github"}_pat_${"A".repeat(30)}`,
@@ -4008,4 +4021,28 @@ test("ci-v9.17 boot smoke: the log redaction equals the one in ops/wp-failed.ts"
     "plain text with sk_ prefix and Bearer x",
   ];
   for (const s of samples) assert.equal(redactLog(s), redact(s), s);
+});
+
+test("C346 ci-v9.21: admin + creative are audit-only: read with the private read token, never listed by registry-sync", async () => {
+  assert.deepEqual([...AUDIT_ONLY_REPOS], ["opt2-tealbrick-admin", "opt2-tealbrick-creative"]);
+  for (const repo of AUDIT_ONLY_REPOS) {
+    assert.ok(!OPT2_REPOS.includes(repo), `${repo}: not in OPT2_REPOS (registry-sync would index its tags; C190/C203)`);
+    assert.ok(!PRIVATE_REPOS.includes(repo), `${repo}: not a release repo`);
+    const calls: { url: string; auth: string | undefined }[] = [];
+    const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(input), auth: ((init?.headers ?? {}) as Record<string, string>).authorization });
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+    const rd = repoReader(repo, { GITHUB_TOKEN: "platform", TB_PRIVATE_READ_TOKEN: "readonly" } as NodeJS.ProcessEnv, fetcher);
+    assert.equal(rd.via, "read-token");
+    const res = await rd.file(".woodpecker/ci.yaml", "main");
+    assert.equal(calls[0]?.auth, "Bearer readonly");
+    assert.match(calls[0]?.url ?? "", new RegExp(`^https://api\\.github\\.com/repos/Tealbrick/${repo}/contents/`));
+    assert.equal(auditVerdict(repo, res.status, rd.via, "none", "ci-v9.9"), "SKIP", "no access yet: SKIP, not FAIL");
+  }
+  const src = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
+  const audit = src.slice(src.indexOf("async function cmdAuditTemplates"), src.indexOf("export function auditSkipReason"));
+  assert.ok(audit.includes("[...OPT2_REPOS, ...AUDIT_ONLY_REPOS]"), "the template audit reads the audit-only repos too");
+  const sync = src.slice(src.indexOf("async function cmdRegistrySync"), src.indexOf("function argValue"));
+  assert.ok(!sync.includes("AUDIT_ONLY_REPOS"), "registry-sync never reads the audit-only repos");
 });

@@ -20,8 +20,9 @@ import { resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { askHidden } from "./prod-secrets.ts";
+import { redact } from "./redact.ts";
 import { checkFilter, pinnedImage, pluginImage, REGISTRY_HOST } from "./site-deploy-plugin/image.ts";
-import { loadConfig, redact as redactWp } from "./wp-failed.ts";
+import { loadConfig } from "./wp-failed.ts";
 
 export const REPO = "Tealbrick/opt2-tealbrick-website";
 /** Woodpecker may still name a moved repo by its old owner (C206); looked up in this order. */
@@ -75,11 +76,6 @@ export function checkToken(value: string): string | null {
   if (/\s/.test(value)) return "the value contains spaces or line breaks";
   if (!TOKEN_RE.test(value)) return 'must be a GitHub fine-grained token (starts with "github_pat_")';
   return null;
-}
-
-/** Removes the secret values and anything token-shaped from a text before it is shown. */
-export function redact(text: string, values: readonly string[]): string {
-  return redactWp(text, values);
 }
 
 /** The secret image filter: the --image-filter value, else the recorded digest-pinned image. Throws while the image is not recorded. */

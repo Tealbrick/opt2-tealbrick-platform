@@ -11,7 +11,6 @@ import {
   parseArgs,
   planLines,
   railwaySetArgs,
-  redact,
   restrictedKeyMode,
   SECRETS,
   type SecretSpec,
@@ -110,11 +109,6 @@ test("kekIdOf: equals Core's default id (manifest kekFromEnv)", () => {
   assert.equal(kekIdOf(key.toString("base64url")), want);
   assert.match(want, /^kek_[0-9a-f]{16}$/);
   assert.throws(() => kekIdOf("short"), /32 bytes/);
-});
-
-test("redact: removes every value from CLI output", () => {
-  const out = redact("error: bad value whsec_abcdef for X; whsec_abcdef again", ["whsec_abcdef", "ab"]);
-  assert.equal(out, "error: bad value *** for X; *** again");
 });
 
 test("railwaySetArgs: value never in argv; always --stdin and --skip-deploys", () => {

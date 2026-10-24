@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { redact } from "./redact.ts";
 
 export const PROJECT = "15297ce5-0283-4901-a408-9c802e6ac53a"; // Railway project "opt2"
 export const DEV_ENVIRONMENT = "production"; // the dev environment (dev.tealbrick.com); never a target of this script
@@ -364,13 +365,6 @@ export function kekIdOf(kek: string): string {
   const key = Buffer.from(kek, "base64url");
   if (key.length !== 32) throw new Error("TB_KEK must decode to 32 bytes");
   return `kek_${createHash("sha256").update("tb:kek-id:").update(key).digest("hex").slice(0, 16)}`;
-}
-
-/** Removes every secret value from a text before it is shown (Railway CLI error output). */
-export function redact(text: string, values: readonly string[]): string {
-  let out = text;
-  for (const v of values) if (v.length >= 4) out = out.split(v).join("***");
-  return out;
 }
 
 /** Arguments for one `railway variable set` call; the value goes to stdin, never into argv. */
