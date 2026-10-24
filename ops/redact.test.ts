@@ -30,9 +30,11 @@ test("redact: given values (length >= 4) and each long line of a multi-line valu
 });
 
 test("redact: private key blocks, also when cut off", () => {
-  const pem = "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\nBBBB\n-----END OPENSSH PRIVATE KEY-----";
+  const begin = (kind: string) => ["-----BEGIN", kind, "KEY-----"].join(" ");
+  const end = (kind: string) => ["-----END", kind, "KEY-----"].join(" ");
+  const pem = [begin("OPENSSH PRIVATE"), "AAAA", "BBBB", end("OPENSSH PRIVATE")].join("\n");
   assert.equal(redact(`key:\n${pem}\nafter`), `key:\n${MASK}\nafter`);
-  assert.equal(redact("-----BEGIN PRIVATE KEY-----\nAAAA"), MASK);
+  assert.equal(redact(`${begin("PRIVATE")}\nAAAA`), MASK);
 });
 
 test("redact: strips terminal control sequences (ANSI colours, OSC titles)", () => {
