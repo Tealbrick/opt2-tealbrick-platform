@@ -3998,8 +3998,8 @@ test("ci-v9.17 boot smoke: pure helpers (parseBootSmoke, bootSmokeSkipProblems, 
   assert.equal(schema.properties.bootSmoke?.additionalProperties, false);
 });
 
-test("ci-v9.17 boot smoke: the log redaction equals the one in ops/wp-failed.ts", async () => {
-  const { redact } = (await import("../ops/wp-failed.ts")) as { redact: (s: string) => string };
+test("ci-v9.17 boot smoke: the log redaction equals the one in ops/redact.ts", async () => {
+  const { redact } = (await import("../ops/redact.ts")) as { redact: (s: string) => string };
   const samples = [
     `token ${"gh"}p_${"x1".repeat(15)} here`,
     `${"github"}_pat_${"A".repeat(30)}`,

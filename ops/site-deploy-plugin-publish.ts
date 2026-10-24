@@ -12,6 +12,7 @@ import { mkdtempSync, readFileSync, rmdirSync, statSync, unlinkSync, writeFileSy
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { redact } from "./redact.ts";
 import { DIGEST_FILE, IMAGE_NAME, pluginVersion, REGISTRY_HOST } from "./site-deploy-plugin/image.ts";
 
 export const TOKEN_FILE = join(homedir(), ".config", "opt2-tealbrick", "forge-packages-token");
@@ -42,12 +43,6 @@ export interface Deps {
   };
   /** Stops a running child (on a signal). */
   killChild: () => void;
-}
-
-export function redact(text: string, token: string): string {
-  let out = token.length >= 4 ? text.split(token).join("***") : text;
-  out = out.replace(/\bgh[pousr]_[A-Za-z0-9]{20,}\b|\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, "***");
-  return out.replace(/(authorization:\s*)\S+(\s+\S+)?/gi, "$1***");
 }
 
 export function parseArgs(argv: readonly string[], env: NodeJS.ProcessEnv = process.env): { push: boolean; user: string | null } {
@@ -107,7 +102,7 @@ export async function tagExists(f: Fetch, token: string, version: string): Promi
         signal: AbortSignal.timeout(30_000),
       });
     } catch (e) {
-      throw new Error(redact(`cannot ask the registry whether ${version} exists: ${(e as Error).message}`, token));
+      throw new Error(redact(`cannot ask the registry whether ${version} exists: ${(e as Error).message}`, [token]));
     }
   };
   const stop = (why: string): never => {
@@ -140,7 +135,7 @@ export async function publish(opts: { push: boolean; user: string | null }, deps
   const out: string[] = [];
   const guard = async (pending: RunResult | Promise<RunResult>, what: string): Promise<RunResult> => {
     const r = await pending;
-    if (r.status !== 0) throw new Error(redact(`${what} failed (exit ${r.status}): ${`${r.stderr}${r.stdout}`.trim().slice(-400)}`, token));
+    if (r.status !== 0) throw new Error(redact(`${what} failed (exit ${r.status}): ${`${r.stderr}${r.stdout}`.trim().slice(-400)}`, [token]));
     return r;
   };
   if (await tagExists(deps.fetch, token, version)) {
@@ -258,7 +253,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     };
     for (const l of await publish(opts, deps)) console.log(l);
   } catch (e) {
-    console.error(`site-deploy-plugin-publish: FAIL: ${redact((e as Error).message, "")}`);
+    console.error(`site-deploy-plugin-publish: FAIL: ${redact((e as Error).message)}`);
     process.exit(1);
   }
 }

@@ -7,6 +7,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { redact } from "./redact.ts";
 
 export interface WpStep {
   id: number;
@@ -31,23 +32,6 @@ export interface WpPipeline {
 }
 
 const TAIL = 40;
-/** Patterns that must never reach a terminal: GitHub tokens, Stripe keys, webhook secrets, bearer headers, PATs. */
-const REDACT: RegExp[] = [
-  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,
-  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
-  /\b(?:rk|sk|pk)_(?:live|test)_[A-Za-z0-9]{8,}\b/g,
-  /\bwhsec_[A-Za-z0-9]{8,}\b/g,
-  /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
-];
-
-export function redact(line: string, extra: readonly string[] = []): string {
-  // terminal control sequences from step output (colours, cursor moves, OSC titles) never reach the reader's terminal
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is the point
-  let out = line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|[\u0000-\u0008\u000b-\u001f\u007f]/g, "");
-  for (const secret of extra) if (secret.length >= 8) out = out.split(secret).join("[redacted]");
-  for (const re of REDACT) out = out.replace(re, "[redacted]");
-  return out;
-}
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, dir = join(homedir(), ".config", "opt2-tealbrick")): { url: string; token: string } {
   let url = env.WOODPECKER_URL?.trim();
