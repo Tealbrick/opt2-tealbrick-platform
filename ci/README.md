@@ -1,4 +1,4 @@
-# opt2 CI standard (template ci-v9.19)
+# opt2 CI standard (template ci-v9.21)
 
 One Woodpecker pipeline for every opt2 repo. It is an enforced standard, not a convention:
 every repo's `.woodpecker/ci.yaml` is a byte-identical copy of `ci/woodpecker/ci.yaml`, and the
@@ -194,6 +194,8 @@ Never run a global `docker/podman system prune` on the CI host (shared daemon).
 4. Raise `ci/MIN_TEMPLATE` by a separate PR only after every repo in `OPT2_REPOS` runs the new template (`template-audit` shows it).
 
 ## Template history (newest first)
+ci-v9.21 (C346): the template audit (`audit-templates`) also reads `AUDIT_ONLY_REPOS` = `opt2-tealbrick-admin`, `opt2-tealbrick-creative`: private repos that are not release repos. They are not in `OPT2_REPOS`, so registry-sync never lists their tags and nothing of theirs is indexed (creative joins `OPT2_REPOS` only with its public flip and Martin's yes, C190/C203). They are read with `TB_PRIVATE_READ_TOKEN` like `PRIVATE_REPOS`; without read access (no token on the runner, or the token has no access to the repo) the audit logs `SKIP ... no read access`, never FAIL. Note: the Woodpecker `template-audit` pipeline has no token, so it SKIPs every private repo until it runs with one. Steps unchanged; `MIN_TEMPLATE` stays `ci-v9.9`; no repo needs to adopt.
+
 ci-v9.20 (S1c): the registry-sync signer indexes the host agent: `DIST_PRODUCTS.host` (`@opt2-tealbrick/host`, bin `tealbrick-host`, tag `host-v<ver>` of `opt2-tealbrick-cli`, kind `package`) and `products.json` binds `host` to the CLI repo. The host installer (`opt2-tealbrick-cli` `install/host-install.sh`) installs only what this signed entry names (sha256 + sha512). Steps unchanged; `MIN_TEMPLATE` stays `ci-v9.9`; no repo needs to adopt.
 
 ci-v9.19 (C308, S1): the registry-sync signer pins own-server engines. New index kind `engine` (Openship): `registry/engines.json` (PR only) lists the reviewed pins; the signer checks every mirrored image digest in ghcr and the npm tarball bytes itself, then adds a `kind: engine` record (immutable; stable only after an identical dev record). Core and every other reader skip the kind (L24). `products.json` binds `openship` to this repo as kind `engine`. Steps unchanged; `MIN_TEMPLATE` stays `ci-v9.9`.

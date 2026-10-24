@@ -158,6 +158,13 @@ export const PRIVATE_REPOS: readonly string[] = [
   "opt2-tealbrick-qa",
   // C249 (ci-v9.12, Martin yes 2026-10-18): opt2-tealbrick-fleet (Governance) is public again and is read without the token.
 ];
+/** C346 (ci-v9.21): private repos that only the template audit reads. They are NOT in OPT2_REPOS, so registry-sync never lists
+ *  their tags and nothing of theirs is indexed; creative moves to OPT2_REPOS only with its public flip and Martin's yes
+ *  (C190/C203). Read with TB_PRIVATE_READ_TOKEN like PRIVATE_REPOS; a repo the audit cannot read (no token, or the token has no
+ *  access to it) is a SKIP with a "no read access" line, never a FAIL: its own pipeline `setup` step enforces ci/MIN_TEMPLATE. */
+export const AUDIT_ONLY_REPOS: readonly string[] = ["opt2-tealbrick-admin", "opt2-tealbrick-creative"];
+/** Repos read with TB_PRIVATE_READ_TOKEN: the private release repos and the audit-only repos. */
+const readsWithToken = (repo: string): boolean => PRIVATE_REPOS.includes(repo) || AUDIT_ONLY_REPOS.includes(repo);
 /** ci-v9.6 (C154/C157): public download hosts for the release assets of private repos. A repo opts in with `distBaseUrl` in
  *  tealbrick-ci.json (or TB_DIST_BASE_URL); only these bases are accepted, so a config can never point dependencies at another host.
  *  The asset layout under a base is `<base>/<repo>-<release tag>/<file>` (one path segment, so a GitHub dist repo's release tag and a
@@ -3301,23 +3308,31 @@ function builtTarballs(dir: string, nameRe: RegExp): [string, Buffer][] {
   return out;
 }
 
-/** D1/C56: report every opt2 repo's template ref on main; fails if any is missing or below the minimum. */
+/** D1/C56: report every opt2 repo's template ref on main (and, C346, the AUDIT_ONLY_REPOS); fails if any is missing or below the minimum. */
 async function cmdAuditTemplates(): Promise<void> {
   const min = (await fetchText(`https://raw.githubusercontent.com/${OWNER}/${PLATFORM_REPO}/main/${MIN_TEMPLATE_PATH}`)).trim();
   const bad: string[] = [];
-  for (const repo of OPT2_REPOS) {
+  const repos = [...OPT2_REPOS, ...AUDIT_ONLY_REPOS];
+  for (const repo of repos) {
     const rd = repoReader(repo); // C154: private repos with TB_PRIVATE_READ_TOKEN when this runner has it
     const res = await rd.file(".woodpecker/ci.yaml", "main");
     const ref = res.text !== null ? (/TB_CI_REF: (\S+)/.exec(res.text)?.[1] ?? "none") : "none";
     const verdict = auditVerdict(repo, res.status, rd.via, ref, min);
     if (verdict === "PEND") log(`PEND ${repo}: no GitHub repo yet (PENDING_REPOS); skipped`);
-    else if (verdict === "SKIP")
-      log(`SKIP ${repo}: private and no ${PRIVATE_READ_TOKEN_ENV} on this runner; its own pipeline setup step enforces ${MIN_TEMPLATE_PATH}`);
+    else if (verdict === "SKIP") log(`SKIP ${repo}: ${auditSkipReason(repo, rd.via)}; its own pipeline setup step enforces ${MIN_TEMPLATE_PATH}`);
     else log(`${verdict === "OK" ? "OK  " : "FAIL"} ${repo}: ${res.status === 200 ? ref : `HTTP ${res.status}`}`);
     if (verdict === "FAIL") bad.push(`${repo} (${res.status === 200 ? ref : `HTTP ${res.status}`})`);
   }
   if (bad.length) fail(`below minimum ${min} or denied (${Object.keys(DENIED_TEMPLATES).join(", ")}): ${bad.join(", ")}`);
-  log(`all ${OPT2_REPOS.length} repos at or above ${min}`);
+  log(`all ${repos.length} repos at or above ${min} (or skipped, see above)`);
+}
+
+/** The SKIP line of the audit: why a private repo was not read. */
+export function auditSkipReason(repo: string, via: RepoReader["via"]): string {
+  if (!AUDIT_ONLY_REPOS.includes(repo)) return `private and no ${PRIVATE_READ_TOKEN_ENV} on this runner`;
+  return via === "read-token"
+    ? `audit-only private repo, no read access (${PRIVATE_READ_TOKEN_ENV} has no access to it)`
+    : `audit-only private repo, no read access (no ${PRIVATE_READ_TOKEN_ENV} on this runner)`;
 }
 
 // ---------- GitHub Actions release publishing (C72): no personal token ----------
@@ -4353,11 +4368,12 @@ export interface RepoReader {
   file(path: string, ref: string): Promise<{ status: number; text: string | null }>;
 }
 
-/** The reader for one repo. A repo in PRIVATE_REPOS uses TB_PRIVATE_READ_TOKEN when it is set (api.github.com only: REST +
- *  contents API with the raw media type); every other repo, or a private one without that token, is read as before (REST with
- *  GITHUB_TOKEN, files from the anonymous raw host, so public repos cost no API quota). The read token never goes to another repo. */
+/** The reader for one repo. A repo in PRIVATE_REPOS or AUDIT_ONLY_REPOS uses TB_PRIVATE_READ_TOKEN when it is set (api.github.com
+ *  only: REST + contents API with the raw media type); every other repo, or a private one without that token, is read as before
+ *  (REST with GITHUB_TOKEN, files from the anonymous raw host, so public repos cost no API quota). The read token never goes to
+ *  another repo. */
 export function repoReader(repo: string, env: NodeJS.ProcessEnv = process.env, fetcher: typeof fetch = fetch): RepoReader {
-  const readToken = PRIVATE_REPOS.includes(repo) ? env[PRIVATE_READ_TOKEN_ENV] || undefined : undefined;
+  const readToken = readsWithToken(repo) ? env[PRIVATE_READ_TOKEN_ENV] || undefined : undefined;
   const token = readToken ?? (env.GITHUB_TOKEN || undefined);
   const via: RepoReader["via"] = readToken ? "read-token" : token ? "github-token" : "anonymous";
   const headers = (accept: string): Record<string, string> => ({
@@ -4392,7 +4408,7 @@ export function repoReader(repo: string, env: NodeJS.ProcessEnv = process.env, f
 
 /** One line for a repo that could not be read; names the missing or too narrow read token for PRIVATE_REPOS. */
 export function repoReadProblem(repo: string, what: string, status: number, via: RepoReader["via"]): string {
-  const hint = !PRIVATE_REPOS.includes(repo)
+  const hint = !readsWithToken(repo)
     ? ""
     : via === "read-token"
       ? ` (${PRIVATE_READ_TOKEN_ENV} cannot read ${repo}: it needs Contents + Metadata: read on it)`
@@ -4400,11 +4416,13 @@ export function repoReadProblem(repo: string, what: string, status: number, via:
   return `${repo}: ${what}: HTTP ${status}${hint}`;
 }
 
-/** D1/C56 audit verdict for one repo. SKIP only for a PRIVATE repo that answers 404 to a reader without the read token (its own
- *  pipeline `setup` step still enforces ci/MIN_TEMPLATE); PEND only for PENDING_REPOS; any other unreadable repo FAILs. */
+/** D1/C56 audit verdict for one repo. SKIP only for a PRIVATE repo that answers 404 to a reader without the read token, or (C346)
+ *  an AUDIT_ONLY repo that answers 404 to any reader (its own pipeline `setup` step still enforces ci/MIN_TEMPLATE); PEND only for
+ *  PENDING_REPOS; any other unreadable repo FAILs. */
 export function auditVerdict(repo: string, status: number, via: RepoReader["via"], ref: string, min: string): "OK" | "FAIL" | "PEND" | "SKIP" {
   if (status === 404 && PENDING_REPOS.includes(repo)) return "PEND";
   if (status === 404 && PRIVATE_REPOS.includes(repo) && via !== "read-token") return "SKIP";
+  if (status === 404 && AUDIT_ONLY_REPOS.includes(repo)) return "SKIP";
   if (status !== 200) return "FAIL";
   return belowMinimum(ref, min) || DENIED_TEMPLATES[ref] !== undefined ? "FAIL" : "OK";
 }
