@@ -7,7 +7,8 @@
 
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadConfig, redact } from "./wp-failed.ts";
+import { redact } from "./redact.ts";
+import { loadConfig } from "./wp-failed.ts";
 
 export interface RunOptions {
   slug: string;

@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
-import { loadConfig, redact, report } from "./wp-failed.ts";
+import { loadConfig, report } from "./wp-failed.ts";
 
 const TOKEN = "wp-test-token-abcdefgh";
 // fake secrets are assembled at runtime so the repo's secret scan (gitleaks) never sees a key-shaped literal
@@ -91,9 +91,6 @@ describe("ops/wp-failed", () => {
     assert.match(out[0] as string, /pipeline 202/);
     await assert.rejects(report("Tealbrick/opt2-tealbrick-sdk", "main", { url, token: TOKEN }), /commit sha/);
   });
-  test("redact is quiet on ordinary text (L34 good case)", () => {
-    assert.equal(redact("pnpm test: 120 passed, sk_ is a prefix, Bearer x"), "pnpm test: 120 passed, sk_ is a prefix, Bearer x");
-  });
   test("loadConfig reads hosts.env and the token file and never returns more than it needs", () => {
     const dir = mkdtempSync(join(tmpdir(), "wpf-"));
     try {
@@ -108,8 +105,4 @@ describe("ops/wp-failed", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-});
-
-test("redact strips terminal control sequences (ANSI colours, OSC titles)", () => {
-  assert.equal(redact("\u001b[1;3mREDACTED\u001b[0m ok \u001b]0;title\u0007done"), "REDACTED ok done");
 });
