@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-25T06:16:56.365Z",
+  "generatedAt": "2026-10-25T07:40:27.257Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -7573,6 +7573,32 @@
       "commit": "c715385f986586d0462cfb426e91aa40f77d552d",
       "tag": "manifest-v0.1.30",
       "publishedAt": "2026-10-21T11:47:20.404Z"
+    },
+    {
+      "id": "rel_01M5S01TYGEA3ZQPPY1BG0F9P5",
+      "product": "manifest",
+      "kind": "package",
+      "version": "0.1.31",
+      "channel": "stable",
+      "manifestDigest": null,
+      "manifestUrl": null,
+      "skillsDigest": null,
+      "image": null,
+      "artifact": {
+        "url": "https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/opt2-tealbrick-sdk-manifest-v0.1.31/opt2-tealbrick-manifest-0.1.31.tgz",
+        "sha256": "sha256:fab2a9c5f0fe00e5c67f6b8fe961123757f8e5c9ea4b958ce70019aea8563ad8",
+        "integrity": "sha512-e45l66dSs1kILX/emn9rLY1ZI29YnqFpHryQBbPjSj0R+300NCgmDr2Vkc4wF52GCt3T2uoO97WIze5p5/xk6w=="
+      },
+      "source": null,
+      "runtime": null,
+      "services": null,
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-sdk",
+      "commit": "919b75412ae569af0896982ec35506058359fe5d",
+      "tag": "manifest-v0.1.31",
+      "publishedAt": "2026-10-25T07:40:25.420Z"
     },
     {
       "id": "rel_01M52QVQY3726CAVNMZ3V0T48M",
