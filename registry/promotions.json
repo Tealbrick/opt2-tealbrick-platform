@@ -416,5 +416,25 @@
         "bridge": "0.1.31"
       }
     }
+  },
+  {
+    "product": "knowledge",
+    "version": "0.1.28",
+    "devReleaseId": "rel_01M5SGG8HGT5DT3DQ2CQXHXW55",
+    "promotedAt": "2026-10-25T12:51:00Z",
+    "by": "coordinator",
+    "decision": "C361a",
+    "expedited": true,
+    "incident": "INC-20261025-01",
+    "evidence": {
+      "soakStart": "2026-10-25T12:36:45Z",
+      "soakEnd": "2026-10-25T12:41:54Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — 'qa1 gate: knowledge 0.1.28 (KN027)' 2026-10-25 12:30–12:50Z: PASS, 0 S1/S2/S3. KN027 start-up race fixed: two fresh installs on the DEV QA workspace 'QA C296 B' went ok -> memory_engine_starting -> memory_engine_key_rejected (the known DEV key state) and never memory_engine_failing (first install ok 12:36:45Z, observed to 12:41:54Z, 23 reads); updates 0.1.28-dev.1 -> 0.1.28 (B, qa1) and 0.1.24 -> 0.1.28 (throwaway) all updated, no rollback; decision C361a + KN027 fix; soak waived like C360a",
+      "platform": {
+        "core": "f63f215b44701ae1925bc52f041f630410f63669",
+        "bridge": "0.1.31"
+      }
+    }
   }
 ]
