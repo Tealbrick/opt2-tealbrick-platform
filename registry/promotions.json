@@ -296,5 +296,25 @@
         "bridge": "0.1.31"
       }
     }
+  },
+  {
+    "product": "connect",
+    "version": "0.5.13",
+    "devReleaseId": "rel_01M5RPK7ZJDQCJXZBP9DVV4VW3",
+    "promotedAt": "2026-10-25T12:00:00Z",
+    "by": "coordinator",
+    "decision": "C360",
+    "expedited": true,
+    "incident": "INC-20261025-01",
+    "evidence": {
+      "soakStart": "2026-10-25T10:00:00Z",
+      "soakEnd": "2026-10-25T11:00:00Z",
+      "workspace": "qa1",
+      "qaRun": "PLACEHOLDER — coordination/qa/VERDICTS.md: Connect 0.5.13 roll on qa1 (INC-20261025-01), to be filled after the qa1 roll and QA PASS; code GO: 'INC-20261025-01 DELTA' (connect#30)",
+      "platform": {
+        "core": "594bbb8c633fe5899f657971e97eca916e01b0df",
+        "bridge": "0.1.31"
+      }
+    }
   }
 ]
