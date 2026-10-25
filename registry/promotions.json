@@ -336,5 +336,65 @@
         "bridge": "0.1.31"
       }
     }
+  },
+  {
+    "product": "inbox",
+    "version": "0.3.1",
+    "devReleaseId": "rel_01M5S76SJA036Z24ZN494N2G5K",
+    "promotedAt": "2026-10-25T11:01:00Z",
+    "by": "coordinator",
+    "decision": "C361a",
+    "expedited": true,
+    "incident": "INC-20261025-01",
+    "evidence": {
+      "soakStart": "2026-10-25T10:07:52Z",
+      "soakEnd": "2026-10-25T10:10:55Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — 'qa1 gate: 4 app Node patches (C361a)' 2026-10-25 10:05–11:00Z: inbox 0.3.1 PASS. Fresh install on the DEV QA workspace 'QA C296 throwaway' ok by 10:07:52, held ok to 10:10:55 (about 183 s, 0 bad reads); qa1 0.3.0 -> 0.3.1 updated 10:20:26Z; soak waived like C360a (C361a)",
+      "platform": {
+        "core": "f63f215b44701ae1925bc52f041f630410f63669",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "rules",
+    "version": "0.3.2",
+    "devReleaseId": "rel_01M5S76M1QDKXQ8AYWZ4G6C442",
+    "promotedAt": "2026-10-25T11:01:00Z",
+    "by": "coordinator",
+    "decision": "C361a",
+    "expedited": true,
+    "incident": "INC-20261025-01",
+    "evidence": {
+      "soakStart": "2026-10-25T10:07:53Z",
+      "soakEnd": "2026-10-25T10:10:55Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — 'qa1 gate: 4 app Node patches (C361a)' 2026-10-25 10:05–11:00Z: rules 0.3.2 PASS. Fresh install on the DEV QA workspace 'QA C296 throwaway' ok by 10:07:53, held ok to 10:10:55 (about 183 s, 0 bad reads); qa1 0.3.1 -> 0.3.2 updated 10:19:57Z; soak waived like C360a (C361a)",
+      "platform": {
+        "core": "f63f215b44701ae1925bc52f041f630410f63669",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "kanban",
+    "version": "0.1.14",
+    "devReleaseId": "rel_01M5S76EJWJS065JYYS62ENGNW",
+    "promotedAt": "2026-10-25T11:01:00Z",
+    "by": "coordinator",
+    "decision": "C361a",
+    "expedited": true,
+    "incident": "INC-20261025-01",
+    "evidence": {
+      "soakStart": "2026-10-25T10:07:53Z",
+      "soakEnd": "2026-10-25T10:10:55Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — 'qa1 gate: 4 app Node patches (C361a)' 2026-10-25 10:05–11:00Z: kanban 0.1.14 PASS. Fresh install on the DEV QA workspace 'QA C296 throwaway' ok by 10:07:53, held ok to 10:10:55 (about 183 s, 0 bad reads); 0.1.13 -> 0.1.14 updated 10:22:08Z; qa1 0.1.14-dev.1 -> 0.1.14 refused 422 upgrade_path; soak waived like C360a (C361a)",
+      "platform": {
+        "core": "f63f215b44701ae1925bc52f041f630410f63669",
+        "bridge": "0.1.31"
+      }
+    }
   }
 ]
