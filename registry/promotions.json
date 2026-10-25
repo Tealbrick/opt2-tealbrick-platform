@@ -336,5 +336,85 @@
         "bridge": "0.1.31"
       }
     }
+  },
+  {
+    "product": "knowledge",
+    "version": "0.1.27",
+    "devReleaseId": "rel_01M5S75RPW5KA58QP4GBXDBS1V",
+    "promotedAt": "2026-10-25T10:04:00Z",
+    "by": "coordinator",
+    "decision": "C361a",
+    "expedited": true,
+    "incident": "INC-20261025-01",
+    "evidence": {
+      "soakStart": "2026-10-25T10:00:00Z",
+      "soakEnd": "2026-10-25T10:10:00Z",
+      "workspace": "qa1",
+      "qaRun": "PLACEHOLDER — qa/VERDICTS.md: DEV gate for knowledge 0.1.27 (fresh install healthy 3 min + update from the old stable), C361a; soak waived like C360a",
+      "platform": {
+        "core": "f63f215b44701ae1925bc52f041f630410f63669",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "inbox",
+    "version": "0.3.1",
+    "devReleaseId": "rel_01M5S76SJA036Z24ZN494N2G5K",
+    "promotedAt": "2026-10-25T10:04:00Z",
+    "by": "coordinator",
+    "decision": "C361a",
+    "expedited": true,
+    "incident": "INC-20261025-01",
+    "evidence": {
+      "soakStart": "2026-10-25T10:00:00Z",
+      "soakEnd": "2026-10-25T10:10:00Z",
+      "workspace": "qa1",
+      "qaRun": "PLACEHOLDER — qa/VERDICTS.md: DEV gate for inbox 0.3.1 (fresh install healthy 3 min + update from the old stable), C361a; soak waived like C360a",
+      "platform": {
+        "core": "f63f215b44701ae1925bc52f041f630410f63669",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "rules",
+    "version": "0.3.2",
+    "devReleaseId": "rel_01M5S76M1QDKXQ8AYWZ4G6C442",
+    "promotedAt": "2026-10-25T10:04:00Z",
+    "by": "coordinator",
+    "decision": "C361a",
+    "expedited": true,
+    "incident": "INC-20261025-01",
+    "evidence": {
+      "soakStart": "2026-10-25T10:00:00Z",
+      "soakEnd": "2026-10-25T10:10:00Z",
+      "workspace": "qa1",
+      "qaRun": "PLACEHOLDER — qa/VERDICTS.md: DEV gate for rules 0.3.2 (fresh install healthy 3 min + update from the old stable), C361a; soak waived like C360a",
+      "platform": {
+        "core": "f63f215b44701ae1925bc52f041f630410f63669",
+        "bridge": "0.1.31"
+      }
+    }
+  },
+  {
+    "product": "kanban",
+    "version": "0.1.14",
+    "devReleaseId": "rel_01M5S76EJWJS065JYYS62ENGNW",
+    "promotedAt": "2026-10-25T10:04:00Z",
+    "by": "coordinator",
+    "decision": "C361a",
+    "expedited": true,
+    "incident": "INC-20261025-01",
+    "evidence": {
+      "soakStart": "2026-10-25T10:00:00Z",
+      "soakEnd": "2026-10-25T10:10:00Z",
+      "workspace": "qa1",
+      "qaRun": "PLACEHOLDER — qa/VERDICTS.md: DEV gate for kanban 0.1.14 (fresh install healthy 3 min + update from the old stable), C361a; soak waived like C360a",
+      "platform": {
+        "core": "f63f215b44701ae1925bc52f041f630410f63669",
+        "bridge": "0.1.31"
+      }
+    }
   }
 ]
