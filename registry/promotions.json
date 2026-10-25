@@ -396,5 +396,25 @@
         "bridge": "0.1.31"
       }
     }
+  },
+  {
+    "product": "bridge",
+    "version": "0.1.34",
+    "devReleaseId": "rel_01M5S7ZAXJ84NQ7X4BM57DATSA",
+    "promotedAt": "2026-10-25T11:17:00Z",
+    "by": "coordinator",
+    "decision": "C361a",
+    "expedited": true,
+    "incident": "INC-20261025-01",
+    "evidence": {
+      "soakStart": "2026-10-25T11:17:00Z",
+      "soakEnd": "2026-10-25T11:18:00Z",
+      "workspace": "qa1",
+      "qaRun": "bridge gate runs post-promotion on the throwaway ws_01M5SC9XGF5Z90N72T6RAYQHCY, because bridge.deploy has no releaseId (Coordinator, C361a); no soak before promotion (waived like C360a); the promotion is reverted if that gate fails. Code gate: bridge#28 Woodpecker 303 green incl. osv-check; tag pipeline 304 green",
+      "platform": {
+        "core": "f63f215b44701ae1925bc52f041f630410f63669",
+        "bridge": "0.1.31"
+      }
+    }
   }
 ]
