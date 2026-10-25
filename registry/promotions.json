@@ -316,5 +316,25 @@
         "bridge": "0.1.31"
       }
     }
+  },
+  {
+    "product": "connect",
+    "version": "0.6.6",
+    "devReleaseId": "rel_01M5S56HR3ZVZ9ZH2VEEKYWSE3",
+    "promotedAt": "2026-10-25T09:28:00Z",
+    "by": "coordinator",
+    "decision": "C361a",
+    "expedited": true,
+    "incident": "INC-20261025-01",
+    "evidence": {
+      "soakStart": "2026-10-25T09:15:27Z",
+      "soakEnd": "2026-10-25T09:18:33Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md — 'qa1 gate: Connect 0.6.6 (C361a)' 2026-10-25 09:12–09:24Z: PASS, 0 S1/S2/S3. Fresh install of rel_01M5S56HR3ZVZ9ZH2VEEKYWSE3 healthy 09:15:27Z–09:18:33Z (186 s, on the DEV QA workspace 'QA C296 throwaway'); update 0.6.1→0.6.6 OK (healthAfter ok 09:22:07Z); 0.6.2→0.6.6 refused upgrade_path; soak waived like C360a (C361a)",
+      "platform": {
+        "core": "f63f215b44701ae1925bc52f041f630410f63669",
+        "bridge": "0.1.31"
+      }
+    }
   }
 ]
