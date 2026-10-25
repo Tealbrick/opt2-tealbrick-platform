@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-25T04:14:22.265Z",
+  "generatedAt": "2026-10-25T04:21:14.486Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -10216,6 +10216,32 @@
       "commit": "ae2e359f180bacf5b593e35e4b5239e979fff99a",
       "tag": "spec-v0.1.74",
       "publishedAt": "2026-10-25T04:14:19.306Z"
+    },
+    {
+      "id": "rel_01M5RMN1TDFH5WC723B2F8318T",
+      "product": "spec",
+      "kind": "package",
+      "version": "0.1.75",
+      "channel": "stable",
+      "manifestDigest": null,
+      "manifestUrl": null,
+      "skillsDigest": null,
+      "image": null,
+      "artifact": {
+        "url": "https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/opt2-tealbrick-specs-spec-v0.1.75/opt2-tealbrick-spec-0.1.75.tgz",
+        "sha256": "sha256:8451fe723285a1765052672ef808bfe4405538b40a5f6b2f875a185cb98dd74a",
+        "integrity": "sha512-Ekum1WQifTRPaLP1NKSqMXpjVZIn5NCpuFgypbiQzYMMJtQ1Yy1Teq8rkYyqUHBsYheIFYz4V/UppGciifpRaw=="
+      },
+      "source": null,
+      "runtime": null,
+      "services": null,
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-specs",
+      "commit": "d59f118b476faa958f2f3c123eb903120f283af8",
+      "tag": "spec-v0.1.75",
+      "publishedAt": "2026-10-25T04:21:12.135Z"
     },
     {
       "id": "rel_01M4NCYVFMKJ21NEVM3HDWAGNB",
