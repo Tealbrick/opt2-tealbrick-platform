@@ -436,5 +436,25 @@
         "bridge": "0.1.31"
       }
     }
+  },
+  {
+    "product": "observer",
+    "version": "0.1.1",
+    "devReleaseId": "rel_01M5W259F7Z1A410XJZ5FC4NXC",
+    "promotedAt": "2026-10-26T12:24:00Z",
+    "by": "coordinator",
+    "decision": "C363",
+    "expedited": true,
+    "incident": "INC-NONE-C363-martin-ship-it",
+    "evidence": {
+      "soakStart": "2026-10-26T12:17:34Z",
+      "soakEnd": "2026-10-26T12:20:53Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/leads/observer/VERDICT.md — '0.1.1 DEV check (2026-10-26, qa1): PASS': owner update 0.1.0 -> 0.1.1 queued -> running/ok in 199 s (12:17:34Z to about 12:20:53Z), outcome updated, no attention; rule 0 and privacy settings kept; new notice copy live; rule_put with pii name works. Martin 'ship it' (C363), soak waived like C360a",
+      "platform": {
+        "core": "f63f215b44701ae1925bc52f041f630410f63669",
+        "bridge": "0.1.31"
+      }
+    }
   }
 ]
