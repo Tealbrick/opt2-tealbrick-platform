@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-27T07:18:14.567Z",
+  "generatedAt": "2026-10-27T07:35:41.812Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -3235,6 +3235,32 @@
       "commit": "a72f58da8a401343c933ab39cd4def4c294e61ed",
       "tag": "cli-v0.2.2-dev.1",
       "publishedAt": "2026-10-17T19:12:34.654Z"
+    },
+    {
+      "id": "rel_01M5Y4JHDDX5EC1G6FJ73BD1ZN",
+      "product": "cli",
+      "kind": "cli",
+      "version": "0.2.2-dev.3",
+      "channel": "dev",
+      "manifestDigest": null,
+      "manifestUrl": null,
+      "skillsDigest": null,
+      "image": null,
+      "artifact": {
+        "url": "https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/opt2-tealbrick-cli-cli-v0.2.2-dev.3/opt2-tealbrick-cli-0.2.2-dev.3.tgz",
+        "sha256": "sha256:0b8799d9e920ad640d5be4e9ef49c7720f23db13846c47faa1c20247773784d8",
+        "integrity": "sha512-j+FWR/54ob/GR6NNWWxkZBkqNwuflMBg+7MstIJbnQ05N76UMiID7vn22xxR9TIzqfkNPiGeaS7iCNZEeySvlQ=="
+      },
+      "source": null,
+      "runtime": null,
+      "services": null,
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-cli",
+      "commit": "8ec1b22920de4a0873703fdf798901230616e964",
+      "tag": "cli-v0.2.2-dev.3",
+      "publishedAt": "2026-10-27T07:35:39.161Z"
     },
     {
       "id": "rel_01M52QWG7CC8B8B7FY00QEX7P8",
