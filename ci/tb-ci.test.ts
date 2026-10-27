@@ -2085,6 +2085,13 @@ test("C207 E1: ignored-tags.json validation (reviewed list; reason + decision)",
   assert.doesNotThrow(() => validateIgnoredTags(committed));
 });
 
+test("C370/C371: the two immutable orphan evolution tags are ignored by explicit (repo, tag) pairs only", () => {
+  const committed = validateIgnoredTags(JSON.parse(readFileSync(new URL("../registry/ignored-tags.json", import.meta.url), "utf8")));
+  const pairs = committed.filter((t) => t.repo === "opt2-tealbrick-evolution").map((t) => `${t.repo}@${t.tag}`).sort();
+  assert.deepEqual(pairs, ["opt2-tealbrick-evolution@v0.4.0-dev.1", "opt2-tealbrick-evolution@v0.4.0-dev.2"], "only dev.1 and dev.2; dev.3 and later stay subject to E1");
+  for (const t of committed) assert.ok(!/[*?]/.test(t.tag), `no wildcard tags (${t.tag})`);
+});
+
 test("C207 E4: new app/bridge tags land on dev; stable only by a recorded promotion with soak evidence (same image + manifest)", () => {
   assert.equal(tagChannel("kanban", "0.2.0", "app"), "dev");
   assert.equal(tagChannel("bridge", "0.1.31", "bridge"), "dev");

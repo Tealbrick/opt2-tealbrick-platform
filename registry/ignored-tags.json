@@ -4,5 +4,17 @@
     "tag": "cli-v0.2.0",
     "reason": "pack failed (old Martin-Atrin URL of spec 0.1.26 in manifest 0.1.18); never published; superseded by cli-v0.2.1 (cli#7 a32ee53)",
     "decision": "C222"
+  },
+  {
+    "repo": "opt2-tealbrick-evolution",
+    "tag": "v0.4.0-dev.1",
+    "reason": "orphan tag, never indexed: E1 rejected it (commit 168d02b was cut off a release branch before the hotfix-branch + merged-PR flow); immutable; superseded by v0.4.0-dev.3 (C370/C371)",
+    "decision": "C371"
+  },
+  {
+    "repo": "opt2-tealbrick-evolution",
+    "tag": "v0.4.0-dev.2",
+    "reason": "orphan tag, never indexed: E1 rejected it (tag pipeline red on the schedules reconcile test flake, fixed in evolution#29); immutable; superseded by v0.4.0-dev.3 (C370/C371)",
+    "decision": "C371"
   }
 ]
