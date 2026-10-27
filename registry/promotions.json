@@ -456,5 +456,25 @@
         "bridge": "0.1.31"
       }
     }
+  },
+  {
+    "product": "bridge",
+    "version": "0.2.11",
+    "devReleaseId": "PLACEHOLDER_rel_id_of_0.2.11_dev",
+    "promotedAt": "PLACEHOLDER_ISO",
+    "by": "coordinator",
+    "decision": "C373d",
+    "expedited": true,
+    "incident": "INC-NONE-C373d-martin-go-catch-up-wave",
+    "evidence": {
+      "soakStart": "PLACEHOLDER_ISO",
+      "soakEnd": "PLACEHOLDER_ISO",
+      "workspace": "PLACEHOLDER_dev_workspace",
+      "qaRun": "PLACEHOLDER: coordination/qa/VERDICTS.md — bridge 0.2.11 gap a (direct 0.1.34 → 0.2.11 upgrade with ostra-like data, ack, grants/holds/keys unchanged, rollback drill) + gap b (ostra app matrix incl. connect 0.7.4, owner rows, model roles); code gates: bridge PR pipelines + tag pipeline green; Martin GO C373d, 24 h soak waived",
+      "platform": {
+        "core": "PLACEHOLDER_core_sha_on_DEV",
+        "bridge": "0.2.11"
+      }
+    }
   }
 ]
