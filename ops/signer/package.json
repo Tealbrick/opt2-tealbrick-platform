@@ -3,10 +3,10 @@
   "private": true,
   "description": "SEC-03: the only dependency the platform signer loads (pinned by integrity in package-lock.json).",
   "dependencies": {
-    "@opt2-tealbrick/manifest": "https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/opt2-tealbrick-sdk-manifest-v0.1.31/opt2-tealbrick-manifest-0.1.31.tgz"
+    "@opt2-tealbrick/manifest": "https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/opt2-tealbrick-sdk-manifest-v0.1.35/opt2-tealbrick-manifest-0.1.35.tgz"
   },
   "overrides": {
-    "@opt2-tealbrick/spec": "https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/opt2-tealbrick-specs-spec-v0.1.64/opt2-tealbrick-spec-0.1.64.tgz",
+    "@opt2-tealbrick/spec": "https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/opt2-tealbrick-specs-spec-v0.1.78/opt2-tealbrick-spec-0.1.78.tgz",
     "fast-uri": "3.1.8"
   }
 }
