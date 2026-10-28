@@ -476,5 +476,105 @@
         "bridge": "0.2.11"
       }
     }
+  },
+  {
+    "product": "inbox",
+    "version": "0.5.2",
+    "devReleaseId": "rel_01M5Y37ADS931MRZW66GA7FDG8",
+    "promotedAt": "2026-10-28T06:37:23Z",
+    "by": "prod-parity-lead",
+    "decision": "C373d",
+    "expedited": true,
+    "incident": "INC-NONE-20261028-martin-dev-eq-prod",
+    "evidence": {
+      "soakStart": "2026-10-27T09:03:48Z",
+      "soakEnd": "2026-10-28T06:37:23Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md 'C373 QA BRIDGE-0211 round 2 + QA C33-UPG retest' (2026-10-27): Inbox 0.3.1 -> 0.5.1 updated 07:16:37Z, health ok, then Connect 0.6.6 -> 0.7.5 accepted; BOARD 2026-10-27T09:03:48Z QA auto-roll C373m: My workspace inbox 0.5.1 -> 0.5.2 (health ok), running ok since (0.5.2 = one change: Allow always link carries the rule id, no migration). Martin 2026-10-28 'make sure dev = prod'; ostra order C373h (Inbox >= 0.5 before Connect 0.7.x); soak waived like C373d",
+      "platform": {
+        "core": "b193775d42386f039d518737121c3bdfcd5aa3d6",
+        "bridge": "0.2.11"
+      }
+    }
+  },
+  {
+    "product": "connect",
+    "version": "0.7.10",
+    "devReleaseId": "rel_01M5YM4PC27RJM7RJ1QMCQWX06",
+    "promotedAt": "2026-10-28T06:37:23Z",
+    "by": "prod-parity-lead",
+    "decision": "C373d",
+    "expedited": true,
+    "incident": "INC-NONE-20261028-martin-dev-eq-prod",
+    "evidence": {
+      "soakStart": "2026-10-27T12:18:45Z",
+      "soakEnd": "2026-10-28T06:37:23Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md 'QA C33-UPG retest' (2026-10-27): Connect 0.6.6 -> 0.7.5 on bridge 0.2.11 + Inbox 0.5.1 accepted, healthBefore/After ok, accounts kept; My workspace auto-roll 0.7.5 -> 0.7.6 -> 0.7.7 -> 0.7.9 -> 0.7.10 (BOARD 2026-10-27 09:48Z, 10:18Z, 11:48Z, 12:18:45Z, health ok each; migrations 0022-0024 additive); Jarvis lead T2 own API + T8 tool shares PASS on 0.7.7/0.7.9 (BOARD); running ok since. Martin 2026-10-28 'make sure dev = prod'; soak waived like C373d",
+      "platform": {
+        "core": "b193775d42386f039d518737121c3bdfcd5aa3d6",
+        "bridge": "0.2.11"
+      }
+    }
+  },
+  {
+    "product": "knowledge",
+    "version": "0.1.29",
+    "devReleaseId": "rel_01M5Y3E4RDRT69JPBF0HDT58V3",
+    "promotedAt": "2026-10-28T06:37:23Z",
+    "by": "prod-parity-lead",
+    "decision": "C373d",
+    "expedited": true,
+    "incident": "INC-NONE-20261028-martin-dev-eq-prod",
+    "evidence": {
+      "soakStart": "2026-10-27T08:03:00Z",
+      "soakEnd": "2026-10-28T06:37:23Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md 'C373 Evolution 0.4.0-dev.5' (2026-10-27): My workspace Knowledge 0.1.28 -> 0.1.29 updated 08:03Z, health degraded as before (DEV memory-engine key state, not a 0.1.29 regression); Evolution 0.4.0-dev.5 companion knowledge.search works on it (Jarvis workflows ran, BOARD 12:03Z); running since. Martin 2026-10-28 'make sure dev = prod'; soak waived like C373d",
+      "platform": {
+        "core": "b193775d42386f039d518737121c3bdfcd5aa3d6",
+        "bridge": "0.2.11"
+      }
+    }
+  },
+  {
+    "product": "kanban",
+    "version": "0.1.15",
+    "devReleaseId": "rel_01M5XFNS09C0CKPGDVH93DCJFT",
+    "promotedAt": "2026-10-28T06:37:23Z",
+    "by": "prod-parity-lead",
+    "decision": "C373d",
+    "expedited": true,
+    "incident": "INC-NONE-20261028-martin-dev-eq-prod",
+    "evidence": {
+      "soakStart": "2026-10-27T09:03:48Z",
+      "soakEnd": "2026-10-28T06:37:23Z",
+      "workspace": "qa1",
+      "qaRun": "BOARD 2026-10-27T09:03:48Z QA auto-roll C373m: My workspace kanban 0.1.14-dev.1 -> 0.1.15 (health ok); upgradeFrom <=0.1.14 covers ostra 0.1.14; Jarvis comment-replies run created issue iss_01M5YKSMZ0KYV34ZQ9ZYYJHHCY on it (BOARD 12:03Z); running ok since. Martin 2026-10-28 'make sure dev = prod'; soak waived like C373d",
+      "platform": {
+        "core": "b193775d42386f039d518737121c3bdfcd5aa3d6",
+        "bridge": "0.2.11"
+      }
+    }
+  },
+  {
+    "product": "rules",
+    "version": "0.5.0",
+    "devReleaseId": "rel_01M5YCWYNRV3Z14XS9ZJW6MGHG",
+    "promotedAt": "2026-10-28T06:37:23Z",
+    "by": "prod-parity-lead",
+    "decision": "C373d",
+    "expedited": true,
+    "incident": "INC-NONE-20261028-martin-dev-eq-prod",
+    "evidence": {
+      "soakStart": "2026-10-27T10:18:46Z",
+      "soakEnd": "2026-10-28T06:37:23Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md 'C373 Rules 0.5.0-dev.1' (0.3.2 -> dev.1 updated, data kept) + 'Rules 0.5.0-dev.6' (modes Permissive/Verification/Closed, English deny, RLO refusal PASS on bridge 0.2.11); BOARD 2026-10-27T10:18:46Z auto-roll My workspace dev.6 -> 0.5.0 (health ok), mode Permissive, running ok since (canvas 'Guards all apps' 2026-10-28). Needs bridge >= 0.2.9 (settings.modelRoles; ostra on 0.2.11). Martin 2026-10-28 'make sure dev = prod'; soak waived like C373d",
+      "platform": {
+        "core": "b193775d42386f039d518737121c3bdfcd5aa3d6",
+        "bridge": "0.2.11"
+      }
+    }
   }
 ]
