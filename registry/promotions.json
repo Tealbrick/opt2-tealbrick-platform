@@ -576,5 +576,65 @@
         "bridge": "0.2.11"
       }
     }
+  },
+  {
+    "product": "rules",
+    "version": "0.5.1",
+    "devReleaseId": "rel_01M60RGXAFCZ9BZYKPGEDQN874",
+    "promotedAt": "2026-10-28T08:10:09Z",
+    "by": "prod-parity-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-10-28T08:09:35Z",
+      "soakEnd": "2026-10-28T08:10:09Z",
+      "workspace": "qa1",
+      "qaRun": "Tag v0.5.1 on main 79eb1ce = tree of the tested v0.5.1-dev.1 (ae0e8b2, rel_01M60KW7SHS8JJPFACHFNTKJAM) except the version string in CHANGELOG.md/package.json/tealbrick.manifest.json (git diff checked). BOARD 2026-10-28T06:58:28Z Rules lead on My workspace: 0.5.1-dev.1 Access page PASS (Jarvis Read only/knowledge: read ran, write held, kanban refused; tools limit), Closed-mode warning, requires.bridge 0.2.11; BOARD 08:09:35Z auto-roll 0.5.1-dev.1 -> 0.5.1 (health ok). No migration. Martin C374 standing rule; soak waived like C373d",
+      "platform": {
+        "core": "b193775d42386f039d518737121c3bdfcd5aa3d6",
+        "bridge": "0.2.11"
+      }
+    }
+  },
+  {
+    "product": "connect",
+    "version": "0.7.11",
+    "devReleaseId": "rel_01M60JYN1MPXGGCK9YWVKB95N7",
+    "promotedAt": "2026-10-28T08:10:09Z",
+    "by": "prod-parity-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-10-28T06:34:27Z",
+      "soakEnd": "2026-10-28T08:10:09Z",
+      "workspace": "qa1",
+      "qaRun": "leads/fleet/STATUS.md: connect#34 contacts_list (app-audience companion op for Governance G-5) QA GO + S3 fix; squash 4b064bd; additive (no migration). BOARD 2026-10-28T06:34:38Z auto-roll My workspace 0.7.10 -> 0.7.11 (health ok), running ok since. Martin C374 standing rule; soak waived like C373d",
+      "platform": {
+        "core": "b193775d42386f039d518737121c3bdfcd5aa3d6",
+        "bridge": "0.2.11"
+      }
+    }
+  },
+  {
+    "product": "fleet",
+    "version": "0.3.0",
+    "devReleaseId": "rel_01M5XFZK930RD4057N04S7RYG6",
+    "promotedAt": "2026-10-28T08:10:09Z",
+    "by": "prod-parity-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-10-27T01:40:49Z",
+      "soakEnd": "2026-10-28T08:10:09Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md 'C373 Governance (fleet) 0.3.0 T2b on My workspace': GO as the ostra candidate for 0.3.0 scope (0 S1, 0 S2; update-with-data 0.2.3 -> 0.3.0 at 01:40:49Z health ok, GV-01..07 PASS); AC-16.11 manual rollback refused safely (release_not_deployable, restore path named). Open S3 QA-C373-GV-1 (bidi chars stored raw) and the 0.3.1 grant view are NOT in this promotion. Running ok on My workspace since. Martin C374 standing rule; soak waived like C373d",
+      "platform": {
+        "core": "b193775d42386f039d518737121c3bdfcd5aa3d6",
+        "bridge": "0.2.11"
+      }
+    }
   }
 ]
