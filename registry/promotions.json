@@ -636,5 +636,45 @@
         "bridge": "0.2.11"
       }
     }
+  },
+  {
+    "product": "bridge",
+    "version": "0.2.12",
+    "devReleaseId": "rel_01M613SWKSPQC1KAR9NQPVGEKR",
+    "promotedAt": "2026-10-28T11:49:41Z",
+    "by": "prod-parity-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-10-28T11:25:33Z",
+      "soakEnd": "2026-10-28T11:49:41Z",
+      "workspace": "qa1",
+      "qaRun": "BOARD 2026-10-28T11:26:34Z Governance lead: bridge#31 squash 41cafb7 changes ONLY manifest 0.1.32 -> 0.1.35; tag pipelines 322/323 green; 224 indexed manifests re-validated, 0 new refusals; qa1 auto-roll 0.2.11 -> 0.2.12 11:25:33Z (health online); relay call OK (Jarvis tools list + knowledge__areas_list). Re-read via Portal API at 2026-10-28T11:49:41Z: qa1 bridge 0.2.12 online, ackedRevision == currentRevision. Needed by Governance 0.3.2 (requires.bridge 0.2.12). Martin C374 standing rule; soak waived like C373d",
+      "platform": {
+        "core": "ee41f208d1d5bebb26f9c348e66116b5fbe498cf",
+        "bridge": "0.2.12"
+      }
+    }
+  },
+  {
+    "product": "fleet",
+    "version": "0.3.2",
+    "devReleaseId": "rel_01M614EK2KBQM64W9BAHXGS44E",
+    "promotedAt": "2026-10-28T11:49:41Z",
+    "by": "prod-parity-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-10-28T11:39:52Z",
+      "soakEnd": "2026-10-28T11:49:41Z",
+      "workspace": "qa1",
+      "qaRun": "BOARD 2026-10-28T11:45:16Z Governance lead: fleet 0.3.2 grant view QA PASS on My workspace (consent topology asked on update then allowed; Access page per agent connections/channels/apps; Topology graph + contacts layer; People Add outside agent; agent without fleet grant gets unknown_tool); QA auto-roll 0.3.0 -> 0.3.2 11:39:52Z health ok; AC-16.5/16.6/16.10 + regressions. fleet#23 d4def72 = 0.3.1 + requires.bridge 0.2.12. Re-read via Portal API at 2026-10-28T11:49:41Z: qa1 fleet 0.3.2 running, health ok. Needs bridge 0.2.12 first and Core ee41f20 (live, RS-17). 0.3.1 (rel_01M60ZZ8EMZY4R9C8NZMECPMQ8) is NOT promoted. Martin C374 standing rule; soak waived like C373d",
+      "platform": {
+        "core": "ee41f208d1d5bebb26f9c348e66116b5fbe498cf",
+        "bridge": "0.2.12"
+      }
+    }
   }
 ]
