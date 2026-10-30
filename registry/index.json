@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-30T17:35:49.156Z",
+  "generatedAt": "2026-10-30T18:11:29.239Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -5271,6 +5271,28 @@
       "publishedAt": "2026-10-30T15:22:16.704Z"
     },
     {
+      "id": "rel_01M67028ERW3DAF3Z0PCGNN9H3",
+      "product": "connect",
+      "kind": "app",
+      "version": "0.7.14-dev.1",
+      "channel": "dev",
+      "manifestDigest": "sha256:2250f1c23b532954aa66fb5400224d2183c881cf9f621802e63b28c8c934077f",
+      "manifestUrl": "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-connect/5e7737b9b00b803de8298119dbcfc26574d18889/tealbrick.manifest.json",
+      "skillsDigest": "sha256:46600df3c7f91e0c6ad519ecb0b856221684010e045c1422e852699968bae091",
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-connect@sha256:c4ec3c421783b8ba562ab93cc6d7b45eedd20f51a6c51fb4965296dd19bc692d",
+      "artifact": null,
+      "source": null,
+      "runtime": null,
+      "services": [],
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-connect",
+      "commit": "5e7737b9b00b803de8298119dbcfc26574d18889",
+      "tag": "v0.7.14-dev.1",
+      "publishedAt": "2026-10-30T18:10:01.304Z"
+    },
+    {
       "id": "rel_01M52QW3DCS0P2HGW822NJVE6A",
       "product": "create-tealbrick-miniapp",
       "kind": "package",
@@ -6060,6 +6082,33 @@
       "publishedAt": "2026-10-30T16:40:41.054Z"
     },
     {
+      "id": "rel_01M670454RSVMTZ5PFA72SSHB6",
+      "product": "evolution",
+      "kind": "app",
+      "version": "0.4.3-dev.2",
+      "channel": "dev",
+      "manifestDigest": "sha256:b1a5482455b1a6bf0e2113bb68f6c7e85ea43ba2f706ec98be892208382fa1d7",
+      "manifestUrl": "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-evolution/674c31c846b92108b36a3478508c2788a6239920/tealbrick.manifest.json",
+      "skillsDigest": "sha256:54bdc7e3b2c74e4f355cd19a52d3ec81e6dae17b88944f18e773e58bf135c179",
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-evolution@sha256:b2914830f1f30b4e65df260b8089218c8b0b2909bca36e8cf84a1ab93461da4d",
+      "artifact": null,
+      "source": null,
+      "runtime": null,
+      "services": [
+        {
+          "id": "temporal",
+          "image": "ghcr.io/tealbrick/opt2-tealbrick-evolution-temporal@sha256:01dbc06221a6a700105c66320aaa83af0fcbaa921e9ba24070c35e29bf6f1cb6"
+        }
+      ],
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": ">=0.3.0 <0.4.3-dev.2",
+      "repo": "Tealbrick/opt2-tealbrick-evolution",
+      "commit": "674c31c846b92108b36a3478508c2788a6239920",
+      "tag": "v0.4.3-dev.2",
+      "publishedAt": "2026-10-30T18:11:03.448Z"
+    },
+    {
       "id": "rel_01M4R0PQ315GA2DFCNNRG1M5AP",
       "product": "fleet",
       "kind": "app",
@@ -6581,6 +6630,28 @@
       "commit": "5dc68f1f2dda755fe8fc904d21823094725f34b6",
       "tag": "v0.4.0-dev.1",
       "publishedAt": "2026-10-30T17:35:16.582Z"
+    },
+    {
+      "id": "rel_01M6703V27YES884AGSMQYPGPP",
+      "product": "fleet",
+      "kind": "app",
+      "version": "0.4.0-dev.2",
+      "channel": "dev",
+      "manifestDigest": "sha256:37b345b5b970298cb598fa37f0a499a8eb965d108f09f30ea9d47de79fc0d03d",
+      "manifestUrl": "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-fleet/927686a716db1bab30369f7de6521fc30f9f53d6/tealbrick.manifest.json",
+      "skillsDigest": "sha256:1f5c11e93aa41f43ad4773d77bd538ca63acef0001d7009935576500a88f5dfa",
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-fleet@sha256:a8413db7a8f7516f295581c81d3fe77fdd16149a5b8a668fdd81c982d2499c77",
+      "artifact": null,
+      "source": null,
+      "runtime": null,
+      "services": [],
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-fleet",
+      "commit": "927686a716db1bab30369f7de6521fc30f9f53d6",
+      "tag": "v0.4.0-dev.2",
+      "publishedAt": "2026-10-30T18:10:53.127Z"
     },
     {
       "id": "rel_01M542H199DE7CD4B79T112HE3",
