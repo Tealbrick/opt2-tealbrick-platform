@@ -714,5 +714,25 @@
         "bridge": "0.2.12"
       }
     }
+  },
+  {
+    "product": "knowledge",
+    "version": "0.1.30",
+    "devReleaseId": "rel_01M66J288CV9E81CCPMD9EJ0AT",
+    "promotedAt": "2026-10-30T15:12:00Z",
+    "by": "prod-parity-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-10-30T14:14:59Z",
+      "soakEnd": "2026-10-30T15:10:00Z",
+      "workspace": "qa1",
+      "qaRun": "Martin 2026-10-30: promote 0.1.30, backfill accepted (at most 1 USD per boot of the owner's credit); QA on qa1 read-only PASS. See coordination/leads/knowledge/STATUS.md (RESTART BLOCK 2026-10-30 ~14:25Z): update 0.1.29 -> 0.1.30 at 2026-10-30T14:14:59Z, health ok, backfill 19 -> 67 of 67. Portal API re-read 2026-10-30T15:09Z: knowledge 0.1.30 running, health ok (healthAt 15:06:50Z), no attention, no lastError. Knowledge#28 squash 8cb17e2, tag v0.1.30. Not provable on qa1 because its key works: rejected-key text in the running app, /embed-check relay in the image, live key replace; recovery probes have unit tests only; gbrain_token_unavailable 429s still open. Soak waived like C374 (platform#85)",
+      "platform": {
+        "core": "36a357ffc357cb983f1477a0af0204b94de40155",
+        "bridge": "0.2.13"
+      }
+    }
   }
 ]
