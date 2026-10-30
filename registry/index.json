@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-30T14:06:21.538Z",
+  "generatedAt": "2026-10-30T15:00:53.441Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -3369,6 +3369,76 @@
       "tag": "v0.2.12",
       "publishedAt": "2026-10-28T11:54:45.569Z",
       "promotedFrom": "rel_01M613SWKSPQC1KAR9NQPVGEKR"
+    },
+    {
+      "id": "rel_01M66N4TQMC0JR33T97KC5P5SN",
+      "product": "bridge",
+      "kind": "bridge",
+      "version": "0.2.13",
+      "channel": "dev",
+      "manifestDigest": null,
+      "manifestUrl": null,
+      "skillsDigest": null,
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-bridge-server@sha256:2c764d4bf3d8fea3a988e8a5f63178d61621ba33272d047aebb4d7be8516c23f",
+      "artifact": null,
+      "source": null,
+      "runtime": {
+        "port": 8080,
+        "internalPort": 8788,
+        "healthPath": "/healthz",
+        "readyPath": "/readyz",
+        "volumes": [
+          {
+            "mountPath": "/data",
+            "backup": true
+          }
+        ],
+        "env": [
+          {
+            "name": "PORT",
+            "source": "fixed",
+            "value": "8080"
+          },
+          {
+            "name": "TB_INTERNAL_PORT",
+            "source": "fixed",
+            "value": "8788"
+          },
+          {
+            "name": "TB_DATA_DIR",
+            "source": "fixed",
+            "value": "/data"
+          },
+          {
+            "name": "TB_KEK",
+            "source": "provider-secret"
+          },
+          {
+            "name": "TB_PORTAL_URL",
+            "source": "portal"
+          },
+          {
+            "name": "TB_ENROL_CODE",
+            "source": "portal"
+          },
+          {
+            "name": "TB_PUBLIC_URL",
+            "source": "public-url"
+          },
+          {
+            "name": "TB_KEYS_PUBLIC_URL",
+            "source": "public-url-keys"
+          }
+        ]
+      },
+      "services": null,
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": ">=0.1.31",
+      "repo": "Tealbrick/opt2-tealbrick-bridge",
+      "commit": "9b389fe9078e14ae6bd4ec75f276ecef068d1af8",
+      "tag": "v0.2.13",
+      "publishedAt": "2026-10-30T14:59:11.220Z"
     },
     {
       "id": "rel_01M52QWHDNRZ0CDEVB2710WKCE",
