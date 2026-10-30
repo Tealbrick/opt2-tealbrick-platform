@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-28T11:54:47.335Z",
+  "generatedAt": "2026-10-30T10:08:54.680Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -5669,6 +5669,33 @@
       "publishedAt": "2026-10-27T02:55:59.910Z"
     },
     {
+      "id": "rel_01M664GHRW68DY67CJBRF6JTDQ",
+      "product": "evolution",
+      "kind": "app",
+      "version": "0.4.0",
+      "channel": "dev",
+      "manifestDigest": "sha256:3d5337547dcc45ef709a3a735e0c2033de1ba8769beb268a06c2c47bf6b36e5c",
+      "manifestUrl": "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-evolution/004ee3c17b5365681aadb457c371dbfa09832e71/tealbrick.manifest.json",
+      "skillsDigest": "sha256:54bdc7e3b2c74e4f355cd19a52d3ec81e6dae17b88944f18e773e58bf135c179",
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-evolution@sha256:96e67f0157bc62a976866c4a0f2403d5df1f1e8b44ebb68b324da40cbe791e4e",
+      "artifact": null,
+      "source": null,
+      "runtime": null,
+      "services": [
+        {
+          "id": "temporal",
+          "image": "ghcr.io/tealbrick/opt2-tealbrick-evolution-temporal@sha256:928ef870775d5b42e965a2e3db12dee77fbfb8cbe1dd666624cfc5bd0ae90b9e"
+        }
+      ],
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": ">=0.3.0 <0.4.0",
+      "repo": "Tealbrick/opt2-tealbrick-evolution",
+      "commit": "004ee3c17b5365681aadb457c371dbfa09832e71",
+      "tag": "v0.4.0",
+      "publishedAt": "2026-10-30T10:08:29.468Z"
+    },
+    {
       "id": "rel_01M4R0PQ315GA2DFCNNRG1M5AP",
       "product": "fleet",
       "kind": "app",
@@ -6324,6 +6351,32 @@
       "commit": "6daaeb1ba10c13a29c77a1a6fbeb25220bd70254",
       "tag": "host-v0.1.0-dev.4",
       "publishedAt": "2026-10-23T15:15:12.888Z"
+    },
+    {
+      "id": "rel_01M664H6SFME9TGJDNPD8NBSCJ",
+      "product": "host",
+      "kind": "package",
+      "version": "0.1.0",
+      "channel": "stable",
+      "manifestDigest": null,
+      "manifestUrl": null,
+      "skillsDigest": null,
+      "image": null,
+      "artifact": {
+        "url": "https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/opt2-tealbrick-cli-host-v0.1.0/opt2-tealbrick-host-0.1.0.tgz",
+        "sha256": "sha256:e3b4273cc3369532838fee32e164e4f8c42feeb1b21d2df8a0c8af469555e918",
+        "integrity": "sha512-sH1yY0IXwwJgt2XNjbVCgCl7wqvjmfJ480klN9zQP+GuFuIynbBhVwA2BZ7wWt07eilcoB1NhFUSDDs1lcn9lA=="
+      },
+      "source": null,
+      "runtime": null,
+      "services": null,
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-cli",
+      "commit": "193b23704f31f2f522493ae94f41193fa2320dcc",
+      "tag": "host-v0.1.0",
+      "publishedAt": "2026-10-30T10:08:50.980Z"
     },
     {
       "id": "rel_01M4QYHWDR92AEA23MEZET9G0K",
