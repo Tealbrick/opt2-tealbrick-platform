@@ -694,5 +694,25 @@
         "bridge": "0.2.12"
       }
     }
+  },
+  {
+    "product": "evolution",
+    "version": "0.4.1",
+    "devReleaseId": "rel_01M668042XKZMPPMHEB2QT5JM6",
+    "promotedAt": "2026-10-30T12:20:00Z",
+    "by": "prod-parity-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-10-30T11:13:34Z",
+      "soakEnd": "2026-10-30T12:19:00Z",
+      "workspace": "qa1",
+      "qaRun": "C374 (Martin): tested DEV builds go to stable; independent QA 2026-10-30. coordination/qa/VERDICTS.md 'Evolving Workflows 0.4.1 (rel_01M668042XKZMPPMHEB2QT5JM6, af12a69) independent QA on My workspace (qa1)' (2026-10-30 11:43-12:16Z, QA lead): 0 S1, 0 new S2; plus 'Evolution 0.4.0 + 0.4.1 on My workspace' (Evolution lead, 10:20-11:40Z). The 0.4.0 S2 (QA-EV-040-1, held write failed with companion_undeclared) is fixed in 0.4.1; 0.4.0 (rel_01M664GHRW68DY67CJBRF6JTDQ) is NOT promoted. 0.4.1 running on qa1 since the owner-API update at 2026-10-30T11:13:34Z; Portal API re-read 2026-10-30T12:19Z: evolution 0.4.1 running, health ok, no attention, no error. Coordinator accepted these gaps: EV-F1 bytes at rest not read (sealed payloads proven by codec refusal and run detail); EV-07 restore not run (no owner restore path for an app with a companion, fix-forward per ARCHITECTURE); EV-01 fresh install not run (one-workspace rule); approval reuse S3 open (same caller, op and input digest only); Connect result actions (C366b D6) not delivered, Martin decision pending. Soak waived like C373d",
+      "platform": {
+        "core": "ee41f208d1d5bebb26f9c348e66116b5fbe498cf",
+        "bridge": "0.2.12"
+      }
+    }
   }
 ]
