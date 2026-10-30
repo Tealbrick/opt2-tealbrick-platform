@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-30T15:17:04.904Z",
+  "generatedAt": "2026-10-30T15:24:02.001Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -5106,6 +5106,28 @@
       "commit": "44d9354085122f7569b9f3b3347171ff02c5f155",
       "tag": "v0.7.12",
       "publishedAt": "2026-10-30T13:15:35.656Z"
+    },
+    {
+      "id": "rel_01M66PF3R01W5N7MT0C351V56V",
+      "product": "connect",
+      "kind": "app",
+      "version": "0.7.13",
+      "channel": "dev",
+      "manifestDigest": "sha256:ee3aa381120f56b6c09164973e4e4960c2e6e3f297cb6ee6c556225e36417ed8",
+      "manifestUrl": "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-connect/b2a4d5c3ef2a799f58fb0872f3b5bb0b7d3d500f/tealbrick.manifest.json",
+      "skillsDigest": "sha256:3777e0e521da9ac31937a46fc02eba0e59dc45155af520d9e4536570a0f1e813",
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-connect@sha256:9b33cff57fb09709efc2c6a537218a415cd4e2a4d77d12869ad963a74c6eb4ef",
+      "artifact": null,
+      "source": null,
+      "runtime": null,
+      "services": [],
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-connect",
+      "commit": "b2a4d5c3ef2a799f58fb0872f3b5bb0b7d3d500f",
+      "tag": "v0.7.13",
+      "publishedAt": "2026-10-30T15:22:16.704Z"
     },
     {
       "id": "rel_01M52QW3DCS0P2HGW822NJVE6A",
