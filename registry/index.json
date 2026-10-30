@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-30T16:57:34.429Z",
+  "generatedAt": "2026-10-30T17:35:49.156Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -3512,6 +3512,76 @@
       "promotedFrom": "rel_01M66N4TQMC0JR33T97KC5P5SN"
     },
     {
+      "id": "rel_01M66XZG6P47WQYCJJPC69YTMF",
+      "product": "bridge",
+      "kind": "bridge",
+      "version": "0.2.14",
+      "channel": "dev",
+      "manifestDigest": null,
+      "manifestUrl": null,
+      "skillsDigest": null,
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-bridge-server@sha256:0d353a29aa1afdbaef4578af21a9c46bad62dd71a671b554184959730825c048",
+      "artifact": null,
+      "source": null,
+      "runtime": {
+        "port": 8080,
+        "internalPort": 8788,
+        "healthPath": "/healthz",
+        "readyPath": "/readyz",
+        "volumes": [
+          {
+            "mountPath": "/data",
+            "backup": true
+          }
+        ],
+        "env": [
+          {
+            "name": "PORT",
+            "source": "fixed",
+            "value": "8080"
+          },
+          {
+            "name": "TB_INTERNAL_PORT",
+            "source": "fixed",
+            "value": "8788"
+          },
+          {
+            "name": "TB_DATA_DIR",
+            "source": "fixed",
+            "value": "/data"
+          },
+          {
+            "name": "TB_KEK",
+            "source": "provider-secret"
+          },
+          {
+            "name": "TB_PORTAL_URL",
+            "source": "portal"
+          },
+          {
+            "name": "TB_ENROL_CODE",
+            "source": "portal"
+          },
+          {
+            "name": "TB_PUBLIC_URL",
+            "source": "public-url"
+          },
+          {
+            "name": "TB_KEYS_PUBLIC_URL",
+            "source": "public-url-keys"
+          }
+        ]
+      },
+      "services": null,
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": ">=0.1.31",
+      "repo": "Tealbrick/opt2-tealbrick-bridge",
+      "commit": "be9f48aeff1261361cd607544d4d25d987b80703",
+      "tag": "v0.2.14",
+      "publishedAt": "2026-10-30T17:33:33.782Z"
+    },
+    {
       "id": "rel_01M52QWHDNRZ0CDEVB2710WKCE",
       "product": "bridge-package-legacy",
       "kind": "package",
@@ -6489,6 +6559,28 @@
       "tag": "v0.3.2",
       "publishedAt": "2026-10-28T11:54:45.569Z",
       "promotedFrom": "rel_01M614EK2KBQM64W9BAHXGS44E"
+    },
+    {
+      "id": "rel_01M66Y2MK6SC0GDM0XV7NWXQDD",
+      "product": "fleet",
+      "kind": "app",
+      "version": "0.4.0-dev.1",
+      "channel": "dev",
+      "manifestDigest": "sha256:7c051bf2dd20a554b104c5d52bcddb4e7e00dc030bbe07ffd3ee72b915dc247a",
+      "manifestUrl": "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-fleet/5dc68f1f2dda755fe8fc904d21823094725f34b6/tealbrick.manifest.json",
+      "skillsDigest": "sha256:1f5c11e93aa41f43ad4773d77bd538ca63acef0001d7009935576500a88f5dfa",
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-fleet@sha256:106e002b8ba591040d11e9bd7f48a971c93c258a0430ab8bd91d251c436c5bf2",
+      "artifact": null,
+      "source": null,
+      "runtime": null,
+      "services": [],
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-fleet",
+      "commit": "5dc68f1f2dda755fe8fc904d21823094725f34b6",
+      "tag": "v0.4.0-dev.1",
+      "publishedAt": "2026-10-30T17:35:16.582Z"
     },
     {
       "id": "rel_01M542H199DE7CD4B79T112HE3",
@@ -10256,6 +10348,32 @@
       "commit": "fd5781c17a74357bb076ba6ce1a72195d353fd96",
       "tag": "miniapp-sdk-v0.1.44",
       "publishedAt": "2026-10-30T15:05:42.520Z"
+    },
+    {
+      "id": "rel_01M66Y3HVVG8JFG196YR65B2YJ",
+      "product": "miniapp-sdk",
+      "kind": "package",
+      "version": "0.1.45",
+      "channel": "stable",
+      "manifestDigest": null,
+      "manifestUrl": null,
+      "skillsDigest": null,
+      "image": null,
+      "artifact": {
+        "url": "https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/opt2-tealbrick-sdk-miniapp-sdk-v0.1.45/opt2-tealbrick-miniapp-sdk-0.1.45.tgz",
+        "sha256": "sha256:e65c4cfa6c6755ca92dad6022a5319b5c04ab2bd7c5794d28b269f9b295c8c04",
+        "integrity": "sha512-2vkY4IS7Yhrh93PbNMXi+rs09WtUGJUONJn3EbDdDIeV3Zj6exI9cDwsd1SYI7x1fiOorURC0qoTpwc0mHF46A=="
+      },
+      "source": null,
+      "runtime": null,
+      "services": null,
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-sdk",
+      "commit": "884ec1c516ba8c7f27403a798596d58b369ae904",
+      "tag": "miniapp-sdk-v0.1.45",
+      "publishedAt": "2026-10-30T17:35:46.552Z"
     },
     {
       "id": "rel_01M5VTJDQB2FFXZJPFNAA41SH9",
