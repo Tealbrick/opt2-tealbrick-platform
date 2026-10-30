@@ -676,5 +676,23 @@
         "bridge": "0.2.12"
       }
     }
+  },
+  {
+    "product": "observer",
+    "version": "0.2.0",
+    "devReleaseId": "rel_01M5XJP7QN46C64NX2THARM6GV",
+    "promotedAt": "2026-10-30T10:12:00Z",
+    "by": "prod-parity-lead",
+    "decision": "C374",
+    "evidence": {
+      "soakStart": "2026-10-27T09:03:48Z",
+      "soakEnd": "2026-10-30T10:04:03Z",
+      "workspace": "qa1",
+      "qaRun": "coordination/qa/VERDICTS.md 'Observer 0.2.0 (rel_01M5XJP7QN46C64NX2THARM6GV) functional QA on My Workspace (qa1)' (2026-10-30): GO for stable, 0 S1, 0 S2 (rows 1a-5b PASS: Connect share, source add, ingest to Review, delivery to the Knowledge company area found by recall, unshare shows a plain failed state and recovers, no duplicate on redelivery/rescan/restart, no-grant agent gets unknown_tool). Soak: BOARD 2026-10-27T09:03:48Z QA auto-roll C373m moved observer 0.1.1 -> 0.2.0 (health ok), running ok since (about 73 h to the QA stopped line 2026-10-30T10:04:03Z). Order on a workspace: bridge >= 0.2.11, Inbox >= 0.5, Connect >= 0.7.5, Knowledge 0.1.29, then Observer; the manifest declares no requires.bridge. Martin C374 standing rule",
+      "platform": {
+        "core": "ee41f208d1d5bebb26f9c348e66116b5fbe498cf",
+        "bridge": "0.2.12"
+      }
+    }
   }
 ]
