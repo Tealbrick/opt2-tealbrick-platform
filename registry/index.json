@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-30T23:27:07.021Z",
+  "generatedAt": "2026-10-30T23:35:16.006Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -6740,6 +6740,28 @@
       "commit": "27051481504d3299b42af58b83d983f44ecb462b",
       "tag": "v0.4.0-dev.6",
       "publishedAt": "2026-10-30T21:57:35.201Z"
+    },
+    {
+      "id": "rel_01M67JMRN1TFBR725AHGQDP4H6",
+      "product": "fleet",
+      "kind": "app",
+      "version": "0.4.0-dev.7",
+      "channel": "dev",
+      "manifestDigest": "sha256:2609f48b48275560d23946fb2f901167433dd40d38f996916113b0158a06406f",
+      "manifestUrl": "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-fleet/2323e8d3174b5958b12143c833ac33b663755ea3/tealbrick.manifest.json",
+      "skillsDigest": "sha256:1f5c11e93aa41f43ad4773d77bd538ca63acef0001d7009935576500a88f5dfa",
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-fleet@sha256:0ba613e3e925dc1ba893ea81d48b65020e06b8dd3e4552b3cbec853cbd8c53c6",
+      "artifact": null,
+      "source": null,
+      "runtime": null,
+      "services": [],
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-fleet",
+      "commit": "2323e8d3174b5958b12143c833ac33b663755ea3",
+      "tag": "v0.4.0-dev.7",
+      "publishedAt": "2026-10-30T23:34:42.081Z"
     },
     {
       "id": "rel_01M542H199DE7CD4B79T112HE3",
