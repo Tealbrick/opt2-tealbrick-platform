@@ -734,5 +734,45 @@
         "bridge": "0.2.13"
       }
     }
+  },
+  {
+    "product": "bridge",
+    "version": "0.2.13",
+    "devReleaseId": "rel_01M66N4TQMC0JR33T97KC5P5SN",
+    "promotedAt": "2026-10-30T16:25:00Z",
+    "by": "prod-parity-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-10-30T15:07:16Z",
+      "soakEnd": "2026-10-30T16:20:00Z",
+      "workspace": "qa1",
+      "qaRun": "C374 (Martin): tested DEV builds go to stable. BOARD 2026-10-30T15:02:26Z Rules lead: bridge#32 squash 9b389fe, tags v0.2.13 + bridge-v0.2.13 (cap acting_agents, policy recheck); BOARD 15:07:16Z QA auto-roll C373m moved bridge 0.2.12 -> 0.2.13 on qa1 (health online), the first real Railway operation on DEV Core 36a357f. coordination/qa/VERDICTS.md 'C378 acting agent live row' (15:18-15:37Z, Rules lead): PASS on bridge 0.2.13 + Rules 0.6.0. Portal API re-read 2026-10-30T16:19Z (qa1): bridge online 0.2.13, no lastError. Gap: the hold approve/deny rows (Inbox, Observer, Governance, Knowledge, Connect agent caller) were run on Rules 0.5.2 (same gate code), and one live row on Rules 0.6.0 + bridge 0.2.13; these are the Rules lead's own QA (not independent). Soak waived like C374 (platform#85, #86)",
+      "platform": {
+        "core": "36a357ffc357cb983f1477a0af0204b94de40155",
+        "bridge": "0.2.13"
+      }
+    }
+  },
+  {
+    "product": "rules",
+    "version": "0.6.0",
+    "devReleaseId": "rel_01M66NEVJ93F0VNMH0DF0FB1KG",
+    "promotedAt": "2026-10-30T16:25:00Z",
+    "by": "prod-parity-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-10-30T15:16:52Z",
+      "soakEnd": "2026-10-30T16:20:00Z",
+      "workspace": "qa1",
+      "qaRun": "C374 (Martin): tested DEV builds go to stable. rules#32 squash 70df758, tag v0.6.0 (requires.bridge 0.2.13: deny and hold rules reach the acting agent behind an app call); BOARD 2026-10-30T15:16:52Z QA auto-roll C373m moved rules 0.5.2 -> 0.6.0 on qa1 (health ok). coordination/qa/VERDICTS.md 'C378 Rules hold, deny and Verification rows' (Rules lead, 13:59-14:45Z) and 'C378 acting agent live row' (15:18-15:37Z, BOARD 15:38:06Z): live row PASS on 0.6.0 + bridge 0.2.13, a deny rule on an agent stopped its routine's Evolution -> Kanban call, control ran. Portal API re-read 2026-10-30T16:19Z (qa1): rules 0.6.0 running, health ok, no attention, no lastError. Gap: the hold approve/deny rows (Inbox, Observer, Governance, Knowledge, Connect agent caller) were run on Rules 0.5.2 (same gate code), and one live row on Rules 0.6.0 + bridge 0.2.13; these are the Rules lead's own QA (not independent). Not run live: tickets, hook-app refusal (bridge tests only), send-time recheck on a real scheduled post. Rules 0.5.2 is not promoted. Soak waived like C374 (platform#85, #86)",
+      "platform": {
+        "core": "36a357ffc357cb983f1477a0af0204b94de40155",
+        "bridge": "0.2.13"
+      }
+    }
   }
 ]
