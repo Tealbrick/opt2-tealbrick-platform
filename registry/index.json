@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-30T10:08:54.680Z",
+  "generatedAt": "2026-10-30T10:16:24.482Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -9837,6 +9837,29 @@
       "commit": "032e9b5bb630b8c9d2748254f2a90f98dfa4e12e",
       "tag": "v0.2.0",
       "publishedAt": "2026-10-27T02:23:05.973Z"
+    },
+    {
+      "id": "rel_01M664YYS9MV5RCHFZPSBC1EQN",
+      "product": "observer",
+      "kind": "app",
+      "version": "0.2.0",
+      "channel": "stable",
+      "manifestDigest": "sha256:b58ed0d53ab1ad8d6fe9a7f6a955b6bfacd8f989cc837cb80049f10ac43b0df9",
+      "manifestUrl": "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-observer/032e9b5bb630b8c9d2748254f2a90f98dfa4e12e/tealbrick.manifest.json",
+      "skillsDigest": "sha256:362e17d611dc83f9d1b796c627d45070ed2f8fa76a7558d3601dde5482ca4965",
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-observer@sha256:0a1cbec0993c5924e03fec1d1384661c5e5074305ff0bb6dbfe72eac853798d9",
+      "artifact": null,
+      "source": null,
+      "runtime": null,
+      "services": [],
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-observer",
+      "commit": "032e9b5bb630b8c9d2748254f2a90f98dfa4e12e",
+      "tag": "v0.2.0",
+      "publishedAt": "2026-10-30T10:16:21.544Z",
+      "promotedFrom": "rel_01M5XJP7QN46C64NX2THARM6GV"
     },
     {
       "id": "rel_01M5425BQMZQBT04XBKZZ32MXY",
