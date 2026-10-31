@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-31T19:05:25.176Z",
+  "generatedAt": "2026-10-31T19:06:36.861Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -5337,6 +5337,28 @@
       "publishedAt": "2026-10-31T14:44:08.738Z"
     },
     {
+      "id": "rel_01M69NNM5XS9C5E7MC8DQ8KZF8",
+      "product": "connect",
+      "kind": "app",
+      "version": "0.7.14-dev.4",
+      "channel": "dev",
+      "manifestDigest": "sha256:5fd0177e552de034ebf0ef0819be59c273c0713beaf0e79ffd153aa72e777ede",
+      "manifestUrl": "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-connect/9be42918168487314cfed2f0879b0be8a2b83cb0/tealbrick.manifest.json",
+      "skillsDigest": "sha256:46600df3c7f91e0c6ad519ecb0b856221684010e045c1422e852699968bae091",
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-connect@sha256:4cbd3abf3119225b4e57fa5ad6cbd9ea7f6b9ace8682e4cbd39b10027e6416e4",
+      "artifact": null,
+      "source": null,
+      "runtime": null,
+      "services": [],
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-connect",
+      "commit": "9be42918168487314cfed2f0879b0be8a2b83cb0",
+      "tag": "v0.7.14-dev.4",
+      "publishedAt": "2026-10-31T19:06:04.861Z"
+    },
+    {
       "id": "rel_01M52QW3DCS0P2HGW822NJVE6A",
       "product": "create-tealbrick-miniapp",
       "kind": "package",
@@ -6151,6 +6173,33 @@
       "commit": "674c31c846b92108b36a3478508c2788a6239920",
       "tag": "v0.4.3-dev.2",
       "publishedAt": "2026-10-30T18:11:03.448Z"
+    },
+    {
+      "id": "rel_01M69NP8JGN0JGJ23GKVN43QSX",
+      "product": "evolution",
+      "kind": "app",
+      "version": "0.4.3-dev.3",
+      "channel": "dev",
+      "manifestDigest": "sha256:ebcdaec626d6443466e433378987abe814777e4f3e4ebd6f663b5a8f2ed15a98",
+      "manifestUrl": "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-evolution/663b9ed6b2173387696838a60a82c8416aa6d171/tealbrick.manifest.json",
+      "skillsDigest": "sha256:54bdc7e3b2c74e4f355cd19a52d3ec81e6dae17b88944f18e773e58bf135c179",
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-evolution@sha256:16e3dca2b41b34dd8509f5592aba76cdc517eb5d8a6aae5b920779386e65a045",
+      "artifact": null,
+      "source": null,
+      "runtime": null,
+      "services": [
+        {
+          "id": "temporal",
+          "image": "ghcr.io/tealbrick/opt2-tealbrick-evolution-temporal@sha256:1ca676248e9a5085e4f505bd998cb2e79b6530ad03d70b9f4468b5663dbdc974"
+        }
+      ],
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": ">=0.3.0 <0.4.3-dev.2",
+      "repo": "Tealbrick/opt2-tealbrick-evolution",
+      "commit": "663b9ed6b2173387696838a60a82c8416aa6d171",
+      "tag": "v0.4.3-dev.3",
+      "publishedAt": "2026-10-31T19:06:25.744Z"
     },
     {
       "id": "rel_01M4R0PQ315GA2DFCNNRG1M5AP",
@@ -8209,6 +8258,28 @@
       "commit": "dbe73f4e507f92e475c4c1b527a97cb0293c01c3",
       "tag": "v0.1.17-dev.3",
       "publishedAt": "2026-10-31T14:44:44.373Z"
+    },
+    {
+      "id": "rel_01M69NNX8C8MNK36PZCH0434KF",
+      "product": "kanban",
+      "kind": "app",
+      "version": "0.1.17-dev.4",
+      "channel": "dev",
+      "manifestDigest": "sha256:0463892842ebd3f860923042062d7130b9a6476f94ac6a28da4d68d56850ff81",
+      "manifestUrl": "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-kanban/f84f4e01b87d5560bf99d81180316af4441a438b/tealbrick.manifest.json",
+      "skillsDigest": "sha256:5c935489e9302e600a11c5eb69b84a2b4cfcb5e72ffaeb941f5f8e2e07f04039",
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-kanban@sha256:a1083b24135e0813d086cd3201e959fb986775113ba14f6d6934a184757f18a4",
+      "artifact": null,
+      "source": null,
+      "runtime": null,
+      "services": [],
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "<=0.1.16 || 0.1.17-dev.1 || 0.1.17-dev.2 || 0.1.17-dev.3",
+      "repo": "Tealbrick/opt2-tealbrick-kanban",
+      "commit": "f84f4e01b87d5560bf99d81180316af4441a438b",
+      "tag": "v0.1.17-dev.4",
+      "publishedAt": "2026-10-31T19:06:14.156Z"
     },
     {
       "id": "rel_01M4NBEHRQ84GFT0Y316P40NJ6",
