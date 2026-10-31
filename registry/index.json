@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-31T00:55:22.750Z",
+  "generatedAt": "2026-10-31T13:44:22.208Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -13788,6 +13788,32 @@
       "commit": "5f0736e9bb1c2b61500fff7f0082a524272321b6",
       "tag": "ui-v0.3.0",
       "publishedAt": "2026-10-17T14:23:23.443Z"
+    },
+    {
+      "id": "rel_01M6938FNW6T5NVTTAHKND0YKZ",
+      "product": "ui",
+      "kind": "package",
+      "version": "0.4.0",
+      "channel": "stable",
+      "manifestDigest": null,
+      "manifestUrl": null,
+      "skillsDigest": null,
+      "image": null,
+      "artifact": {
+        "url": "https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/opt2-tealbrick-packages-ui-v0.4.0/opt2-tealbrick-ui-0.4.0.tgz",
+        "sha256": "sha256:a4bac1de79862d9b4ab1f2c54cf1235deea62febc183ca33ae9a23ad0b95a350",
+        "integrity": "sha512-1r8lbHjUAw5zfN/t/hDh8hNH4kxaVxdgiqEF07bS1oNoR51e8LXlKg7XvHdDh9oUisnAzcjW9BG48MVieEBlrg=="
+      },
+      "source": null,
+      "runtime": null,
+      "services": null,
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-packages",
+      "commit": "a0502b864e26f5dcffedcac6d09e0c8fab9323c2",
+      "tag": "ui-v0.4.0",
+      "publishedAt": "2026-10-31T13:44:19.888Z"
     }
   ],
   "offers": [
