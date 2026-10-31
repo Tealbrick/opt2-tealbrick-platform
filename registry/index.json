@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-31T17:57:39.535Z",
+  "generatedAt": "2026-10-31T18:38:01.454Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -10109,6 +10109,32 @@
       "publishedAt": "2026-10-28T08:30:13.465Z"
     },
     {
+      "id": "rel_01M69M2468NQDEPXQ1NV7JQ6AJ",
+      "product": "manifest",
+      "kind": "package",
+      "version": "0.1.36",
+      "channel": "stable",
+      "manifestDigest": null,
+      "manifestUrl": null,
+      "skillsDigest": null,
+      "image": null,
+      "artifact": {
+        "url": "https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/opt2-tealbrick-sdk-manifest-v0.1.36/opt2-tealbrick-manifest-0.1.36.tgz",
+        "sha256": "sha256:1e0e3c030ae64d51fe64805aba52b96253b375208f69be06d5d732828b764f8d",
+        "integrity": "sha512-rlmAfxEZsGUqoLIWWiAV3nI5/O3JodnDonAP0ZQUNVPTbwaWnXZeU+Or3FeT7JNGST6YfPnD915LrErAZAXyww=="
+      },
+      "source": null,
+      "runtime": null,
+      "services": null,
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-sdk",
+      "commit": "1da096e9696a1e62c751db27d2c48b8b7335789d",
+      "tag": "manifest-v0.1.36",
+      "publishedAt": "2026-10-31T18:37:57.317Z"
+    },
+    {
       "id": "rel_01M52QVQY3726CAVNMZ3V0T48M",
       "product": "miniapp-sdk",
       "kind": "package",
@@ -14216,6 +14242,32 @@
       "commit": "a98c1ecb0a52ad0f5998d4e65cd9cf7e31a01267",
       "tag": "ui-v0.7.0",
       "publishedAt": "2026-10-31T17:57:37.181Z"
+    },
+    {
+      "id": "rel_01M69M26BDRPF6CDJGJ1ZEAW0E",
+      "product": "ui",
+      "kind": "package",
+      "version": "0.7.1",
+      "channel": "stable",
+      "manifestDigest": null,
+      "manifestUrl": null,
+      "skillsDigest": null,
+      "image": null,
+      "artifact": {
+        "url": "https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/opt2-tealbrick-packages-ui-v0.7.1/opt2-tealbrick-ui-0.7.1.tgz",
+        "sha256": "sha256:69df53d02f38e981d1c0f7b8fd23fde3a6cbc7f2bc5a27869074f3533d914fb4",
+        "integrity": "sha512-Rk8Z3UqxjP/xg4XetPZzQ4HDQV3CSIvgzRipJbstMl7CJ2aKE+yCJPXv2KNrctjVEBkrKexbGBhwv92Jqx4uHg=="
+      },
+      "source": null,
+      "runtime": null,
+      "services": null,
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-packages",
+      "commit": "ce6f69682e1decb5d6c8798385cd2befe41d5d1a",
+      "tag": "ui-v0.7.1",
+      "publishedAt": "2026-10-31T18:37:59.524Z"
     }
   ],
   "offers": [
