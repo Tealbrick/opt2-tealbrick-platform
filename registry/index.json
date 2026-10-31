@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-31T13:44:22.208Z",
+  "generatedAt": "2026-10-31T14:01:08.226Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -5293,6 +5293,28 @@
       "publishedAt": "2026-10-30T18:10:01.304Z"
     },
     {
+      "id": "rel_01M6943VV39QBY47P15RY6RQ8T",
+      "product": "connect",
+      "kind": "app",
+      "version": "0.7.14-dev.2",
+      "channel": "dev",
+      "manifestDigest": "sha256:4b52b0ce7f4a11b69717a7566652007a155f2608c85861dee90076d6c6400046",
+      "manifestUrl": "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-connect/b3a5569ddfd435b9413b1ca8a4a21503256acc3e/tealbrick.manifest.json",
+      "skillsDigest": "sha256:46600df3c7f91e0c6ad519ecb0b856221684010e045c1422e852699968bae091",
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-connect@sha256:93414bf8f2abad806aea9d473dfa2df89c273a102b34526493c1050fa52fd27d",
+      "artifact": null,
+      "source": null,
+      "runtime": null,
+      "services": [],
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-connect",
+      "commit": "b3a5569ddfd435b9413b1ca8a4a21503256acc3e",
+      "tag": "v0.7.14-dev.2",
+      "publishedAt": "2026-10-31T13:59:17.091Z"
+    },
+    {
       "id": "rel_01M52QW3DCS0P2HGW822NJVE6A",
       "product": "create-tealbrick-miniapp",
       "kind": "package",
@@ -8011,6 +8033,28 @@
       "commit": "3dc0c18d7365c0ad604c852e9ef371f27ecbbe07",
       "tag": "v0.1.17-dev.1",
       "publishedAt": "2026-10-30T16:40:02.399Z"
+    },
+    {
+      "id": "rel_01M6944TD0TYP4M4KQG5QBJ7JV",
+      "product": "kanban",
+      "kind": "app",
+      "version": "0.1.17-dev.2",
+      "channel": "dev",
+      "manifestDigest": "sha256:b6c1135488858d4646812b2b039408576572b0e92de60563b4609973e3bde38f",
+      "manifestUrl": "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-kanban/5916b650365d2b22f75818d0899e6e08f0ecfe98/tealbrick.manifest.json",
+      "skillsDigest": "sha256:5c935489e9302e600a11c5eb69b84a2b4cfcb5e72ffaeb941f5f8e2e07f04039",
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-kanban@sha256:ba47a1deafef73a88d8c371ec5619148a110e27f7f8e3004018308a8bc3450f1",
+      "artifact": null,
+      "source": null,
+      "runtime": null,
+      "services": [],
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "<=0.1.16 || 0.1.17-dev.1",
+      "repo": "Tealbrick/opt2-tealbrick-kanban",
+      "commit": "5916b650365d2b22f75818d0899e6e08f0ecfe98",
+      "tag": "v0.1.17-dev.2",
+      "publishedAt": "2026-10-31T13:59:48.384Z"
     },
     {
       "id": "rel_01M4NBEHRQ84GFT0Y316P40NJ6",
