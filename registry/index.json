@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-10-31T19:06:36.861Z",
+  "generatedAt": "2026-10-31T19:14:29.526Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -9676,6 +9676,45 @@
       "commit": "81bb6ec1a40658e5a27aba1ea8b0dafdbee48a52",
       "tag": "v0.1.31-dev.3",
       "publishedAt": "2026-10-31T14:53:25.880Z"
+    },
+    {
+      "id": "rel_01M69P0Q3V3W9CQWF0PXNZ3B3B",
+      "product": "knowledge",
+      "kind": "app",
+      "version": "0.1.31-dev.4",
+      "channel": "dev",
+      "manifestDigest": "sha256:99ebe0d95accebac5336802d1c8a4f74ec60127400a07c2b13bb265c7d3e2315",
+      "manifestUrl": "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-knowledge/4ec757345f92f6b61462e7f1d58138ee25f64479/tealbrick.manifest.json",
+      "skillsDigest": "sha256:4cd98bc09d2e3a4cef7b8ff13877cb1541673c9b409fb489e3e19d08ef60ceac",
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-knowledge@sha256:450e68341bb731e3391613bdab0623a6b4684717af7290822c4f6c31aa625d46",
+      "artifact": null,
+      "source": null,
+      "runtime": null,
+      "services": [
+        {
+          "id": "gbrain",
+          "image": "ghcr.io/tealbrick/opt2-tealbrick-knowledge-gbrain@sha256:f89de3b26737af0a187649dcf8f8d148e1dc87baf9c20edd2a106fd7b06aa5b9"
+        },
+        {
+          "id": "gbrain-db",
+          "image": "ghcr.io/tealbrick/opt2-tealbrick-knowledge-gbrain-db@sha256:6462b26e71e74d1cfcccb8cb2fdbc002584c83740c2ef9d2b1105eb8656ea915"
+        },
+        {
+          "id": "notebook",
+          "image": "ghcr.io/tealbrick/opt2-tealbrick-knowledge-notebook@sha256:52b17fe73c9b4dc3682fa474c9ae796d07820fcdf853d0ca5d442b546b8d1026"
+        },
+        {
+          "id": "notebook-db",
+          "image": "ghcr.io/tealbrick/opt2-tealbrick-knowledge-notebook-db@sha256:c78916132621798aa1b3048b3770bf1e15e4ef68047d648290135070f77e5668"
+        }
+      ],
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": ">=0.1.20 <=0.1.30 || 0.1.28-dev.1 || 0.1.31-dev.1 || 0.1.31-dev.2 || 0.1.31-dev.3",
+      "repo": "Tealbrick/opt2-tealbrick-knowledge",
+      "commit": "4ec757345f92f6b61462e7f1d58138ee25f64479",
+      "tag": "v0.1.31-dev.4",
+      "publishedAt": "2026-10-31T19:12:08.315Z"
     },
     {
       "id": "rel_01M52QVZ23HYSABWGE6MZHPKZY",
