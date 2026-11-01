@@ -774,5 +774,165 @@
         "bridge": "0.2.13"
       }
     }
+  },
+  {
+    "product": "bridge",
+    "version": "0.2.14",
+    "devReleaseId": "rel_01M66XZG6P47WQYCJJPC69YTMF",
+    "promotedAt": "2026-11-01T10:29:10Z",
+    "by": "c383-release-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-10-30T17:43:09Z",
+      "soakEnd": "2026-11-01T10:29:10Z",
+      "workspace": "qa1",
+      "qaRun": "C383 (Martin 2026-11-01: 'stop when rules and governance is done, deployed on ostra', C386a 'for now just ship everything'; D11 accepted C385). QA: coordination/qa/VERDICTS.md and coordination/leads/fleet/QA-C380.md section 17 (independent QA lead 05:35-07:50Z: Rules and Governance rows that ran have no open S1 or S2; its one stable blocker, Connect to the Jarvis mock, goes with Connect 0.7.15; not-run rows A33, R7, N2-2, R8, Core restart, agent-scope round are the Coordinator's ruling). Finals smoke on plain tags: VERDICTS 2026-11-01T09:32:06Z. Soak waived like C374",
+      "platform": {
+        "core": "2fd86565e46eaec450bc9eb624e51afae91d159c",
+        "bridge": "0.2.14"
+      }
+    }
+  },
+  {
+    "product": "knowledge",
+    "version": "0.1.31",
+    "devReleaseId": "rel_01M6B45R58T2GT9R971BEDSF8E",
+    "promotedAt": "2026-11-01T10:29:10Z",
+    "by": "c383-release-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-11-01T09:09:25Z",
+      "soakEnd": "2026-11-01T10:29:10Z",
+      "workspace": "qa1",
+      "qaRun": "C383 (Martin 2026-11-01: 'stop when rules and governance is done, deployed on ostra', C386a 'for now just ship everything'; D11 accepted C385). QA: coordination/qa/VERDICTS.md and coordination/leads/fleet/QA-C380.md section 17 (independent QA lead 05:35-07:50Z: Rules and Governance rows that ran have no open S1 or S2; its one stable blocker, Connect to the Jarvis mock, goes with Connect 0.7.15; not-run rows A33, R7, N2-2, R8, Core restart, agent-scope round are the Coordinator's ruling). Finals smoke on plain tags: VERDICTS 2026-11-01T09:32:06Z. Soak waived like C374",
+      "platform": {
+        "core": "2fd86565e46eaec450bc9eb624e51afae91d159c",
+        "bridge": "0.2.14"
+      }
+    }
+  },
+  {
+    "product": "kanban",
+    "version": "0.1.17",
+    "devReleaseId": "rel_01M6B47NPFYT1JC5GDWT87MAQR",
+    "promotedAt": "2026-11-01T10:29:10Z",
+    "by": "c383-release-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-11-01T08:44:57Z",
+      "soakEnd": "2026-11-01T10:29:10Z",
+      "workspace": "qa1",
+      "qaRun": "C383 (Martin 2026-11-01: 'stop when rules and governance is done, deployed on ostra', C386a 'for now just ship everything'; D11 accepted C385). QA: coordination/qa/VERDICTS.md and coordination/leads/fleet/QA-C380.md section 17 (independent QA lead 05:35-07:50Z: Rules and Governance rows that ran have no open S1 or S2; its one stable blocker, Connect to the Jarvis mock, goes with Connect 0.7.15; not-run rows A33, R7, N2-2, R8, Core restart, agent-scope round are the Coordinator's ruling). Finals smoke on plain tags: VERDICTS 2026-11-01T09:32:06Z. Soak waived like C374",
+      "platform": {
+        "core": "2fd86565e46eaec450bc9eb624e51afae91d159c",
+        "bridge": "0.2.14"
+      }
+    }
+  },
+  {
+    "product": "inbox",
+    "version": "0.5.3",
+    "devReleaseId": "rel_01M6B48FQJRKDGSCVB9AYNH20F",
+    "promotedAt": "2026-11-01T10:29:10Z",
+    "by": "c383-release-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-11-01T08:49:06Z",
+      "soakEnd": "2026-11-01T10:29:10Z",
+      "workspace": "qa1",
+      "qaRun": "C383 (Martin 2026-11-01: 'stop when rules and governance is done, deployed on ostra', C386a 'for now just ship everything'; D11 accepted C385). QA: coordination/qa/VERDICTS.md and coordination/leads/fleet/QA-C380.md section 17 (independent QA lead 05:35-07:50Z: Rules and Governance rows that ran have no open S1 or S2; its one stable blocker, Connect to the Jarvis mock, goes with Connect 0.7.15; not-run rows A33, R7, N2-2, R8, Core restart, agent-scope round are the Coordinator's ruling). Finals smoke on plain tags: VERDICTS 2026-11-01T09:32:06Z. Soak waived like C374",
+      "platform": {
+        "core": "2fd86565e46eaec450bc9eb624e51afae91d159c",
+        "bridge": "0.2.14"
+      }
+    }
+  },
+  {
+    "product": "rules",
+    "version": "0.7.0",
+    "devReleaseId": "rel_01M6B480NCMZ9XR2JASQGDX73B",
+    "promotedAt": "2026-11-01T10:29:10Z",
+    "by": "c383-release-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-11-01T08:59:06Z",
+      "soakEnd": "2026-11-01T10:29:10Z",
+      "workspace": "qa1",
+      "qaRun": "C383 (Martin 2026-11-01: 'stop when rules and governance is done, deployed on ostra', C386a 'for now just ship everything'; D11 accepted C385). QA: coordination/qa/VERDICTS.md and coordination/leads/fleet/QA-C380.md section 17 (independent QA lead 05:35-07:50Z: Rules and Governance rows that ran have no open S1 or S2; its one stable blocker, Connect to the Jarvis mock, goes with Connect 0.7.15; not-run rows A33, R7, N2-2, R8, Core restart, agent-scope round are the Coordinator's ruling). Finals smoke on plain tags: VERDICTS 2026-11-01T09:32:06Z. Soak waived like C374",
+      "platform": {
+        "core": "2fd86565e46eaec450bc9eb624e51afae91d159c",
+        "bridge": "0.2.14"
+      }
+    }
+  },
+  {
+    "product": "evolution",
+    "version": "0.4.3",
+    "devReleaseId": "rel_01M6B496PS4F2K3JEPK421JPW4",
+    "promotedAt": "2026-11-01T10:29:10Z",
+    "by": "c383-release-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-11-01T09:14:15Z",
+      "soakEnd": "2026-11-01T10:29:10Z",
+      "workspace": "qa1",
+      "qaRun": "C383 (Martin 2026-11-01: 'stop when rules and governance is done, deployed on ostra', C386a 'for now just ship everything'; D11 accepted C385). QA: coordination/qa/VERDICTS.md and coordination/leads/fleet/QA-C380.md section 17 (independent QA lead 05:35-07:50Z: Rules and Governance rows that ran have no open S1 or S2; its one stable blocker, Connect to the Jarvis mock, goes with Connect 0.7.15; not-run rows A33, R7, N2-2, R8, Core restart, agent-scope round are the Coordinator's ruling). Finals smoke on plain tags: VERDICTS 2026-11-01T09:32:06Z. Soak waived like C374",
+      "platform": {
+        "core": "2fd86565e46eaec450bc9eb624e51afae91d159c",
+        "bridge": "0.2.14"
+      }
+    }
+  },
+  {
+    "product": "observer",
+    "version": "0.2.1",
+    "devReleaseId": "rel_01M6B49SHSJGKPM35GEGFKV630",
+    "promotedAt": "2026-11-01T10:29:10Z",
+    "by": "c383-release-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-11-01T09:19:06Z",
+      "soakEnd": "2026-11-01T10:29:10Z",
+      "workspace": "qa1",
+      "qaRun": "C383 (Martin 2026-11-01: 'stop when rules and governance is done, deployed on ostra', C386a 'for now just ship everything'; D11 accepted C385). QA: coordination/qa/VERDICTS.md and coordination/leads/fleet/QA-C380.md section 17 (independent QA lead 05:35-07:50Z: Rules and Governance rows that ran have no open S1 or S2; its one stable blocker, Connect to the Jarvis mock, goes with Connect 0.7.15; not-run rows A33, R7, N2-2, R8, Core restart, agent-scope round are the Coordinator's ruling). Finals smoke on plain tags: VERDICTS 2026-11-01T09:32:06Z. Soak waived like C374",
+      "platform": {
+        "core": "2fd86565e46eaec450bc9eb624e51afae91d159c",
+        "bridge": "0.2.14"
+      }
+    }
+  },
+  {
+    "product": "fleet",
+    "version": "0.4.1",
+    "devReleaseId": "rel_01M6B8T867RQW8KEG2BFKZE552",
+    "promotedAt": "2026-11-01T10:29:10Z",
+    "by": "c383-release-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-11-01T10:04:33Z",
+      "soakEnd": "2026-11-01T10:29:10Z",
+      "workspace": "qa1",
+      "qaRun": "C383 (Martin 2026-11-01: 'stop when rules and governance is done, deployed on ostra', C386a 'for now just ship everything'; D11 accepted C385). QA: coordination/qa/VERDICTS.md and coordination/leads/fleet/QA-C380.md section 17 (independent QA lead 05:35-07:50Z: Rules and Governance rows that ran have no open S1 or S2; its one stable blocker, Connect to the Jarvis mock, goes with Connect 0.7.15; not-run rows A33, R7, N2-2, R8, Core restart, agent-scope round are the Coordinator's ruling). Finals smoke on plain tags: VERDICTS 2026-11-01T09:32:06Z. Soak waived like C374",
+      "platform": {
+        "core": "2fd86565e46eaec450bc9eb624e51afae91d159c",
+        "bridge": "0.2.14"
+      }
+    }
   }
 ]
