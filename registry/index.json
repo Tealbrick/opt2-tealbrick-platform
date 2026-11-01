@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-11-01T08:41:05.428Z",
+  "generatedAt": "2026-11-01T11:56:18.769Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -7131,6 +7131,28 @@
       "publishedAt": "2026-11-01T08:40:27.035Z"
     },
     {
+      "id": "rel_01M6B8T867RQW8KEG2BFKZE552",
+      "product": "fleet",
+      "kind": "app",
+      "version": "0.4.1",
+      "channel": "dev",
+      "manifestDigest": "sha256:93dc4b2e4a8c5fa221908880e977008cadc5beca0f273b4e4d09880b37ddff70",
+      "manifestUrl": "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-fleet/ca53cb1f02f357d4e474d26d7af1075168c4516d/tealbrick.manifest.json",
+      "skillsDigest": "sha256:1f5c11e93aa41f43ad4773d77bd538ca63acef0001d7009935576500a88f5dfa",
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-fleet@sha256:3273836bd676c983052c022724717bd6986698c180907d094b56c96c5d5eb2cb",
+      "artifact": null,
+      "source": null,
+      "runtime": null,
+      "services": [],
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-fleet",
+      "commit": "ca53cb1f02f357d4e474d26d7af1075168c4516d",
+      "tag": "v0.4.1",
+      "publishedAt": "2026-11-01T09:59:53.799Z"
+    },
+    {
       "id": "rel_01M542H199DE7CD4B79T112HE3",
       "product": "harness-claude",
       "kind": "package",
@@ -10597,6 +10619,32 @@
       "publishedAt": "2026-10-31T18:37:57.317Z"
     },
     {
+      "id": "rel_01M6BF1DZYX61JH2D4AXRQKPYA",
+      "product": "manifest",
+      "kind": "package",
+      "version": "0.1.37",
+      "channel": "stable",
+      "manifestDigest": null,
+      "manifestUrl": null,
+      "skillsDigest": null,
+      "image": null,
+      "artifact": {
+        "url": "https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/opt2-tealbrick-sdk-manifest-v0.1.37/opt2-tealbrick-manifest-0.1.37.tgz",
+        "sha256": "sha256:5a12c68c657f42e09de907641e202a4e2b48a95e175085a99bd4478ce671a805",
+        "integrity": "sha512-mW8Xr1QWU9INfbSW0HWvyX7MTPDlr0ghJ5P3u1fchm39K5goj0RMPcwwtsemgQlVsWlMHAwB+LpO1PI1vqilQw=="
+      },
+      "source": null,
+      "runtime": null,
+      "services": null,
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-sdk",
+      "commit": "3eff9dc56c9321b5fcc60909768b025c75c606bb",
+      "tag": "manifest-v0.1.37",
+      "publishedAt": "2026-11-01T11:48:40.570Z"
+    },
+    {
       "id": "rel_01M52QVQY3726CAVNMZ3V0T48M",
       "product": "miniapp-sdk",
       "kind": "package",
@@ -11323,6 +11371,32 @@
       "commit": "772f5c144a3f4b854f312a8b6e8b6f5806fd34d2",
       "tag": "miniapp-sdk-v0.1.46",
       "publishedAt": "2026-10-30T19:14:20.477Z"
+    },
+    {
+      "id": "rel_01M6BFFB3S9JSAM9F0PME1ANEP",
+      "product": "miniapp-sdk",
+      "kind": "package",
+      "version": "0.1.47",
+      "channel": "stable",
+      "manifestDigest": null,
+      "manifestUrl": null,
+      "skillsDigest": null,
+      "image": null,
+      "artifact": {
+        "url": "https://github.com/Tealbrick/opt2-tealbrick-dist/releases/download/opt2-tealbrick-sdk-miniapp-sdk-v0.1.47/opt2-tealbrick-miniapp-sdk-0.1.47.tgz",
+        "sha256": "sha256:d7816a8ac14cda0e3753e9d238135d53bec39816cc5f47a9261d9dce808d3a6f",
+        "integrity": "sha512-a2h2eye7ZZ1yqbjNL5pH2QPTJeBWgWQIkyTPzbFvakpV8+fZ06Pbx0pU/Q+wVCx/SX28QWj2Ltv/FYQH+nJg3w=="
+      },
+      "source": null,
+      "runtime": null,
+      "services": null,
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": "*",
+      "repo": "Tealbrick/opt2-tealbrick-sdk",
+      "commit": "3eff9dc56c9321b5fcc60909768b025c75c606bb",
+      "tag": "miniapp-sdk-v0.1.47",
+      "publishedAt": "2026-11-01T11:56:16.371Z"
     },
     {
       "id": "rel_01M5VTJDQB2FFXZJPFNAA41SH9",
