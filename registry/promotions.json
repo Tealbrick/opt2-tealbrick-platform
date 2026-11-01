@@ -954,5 +954,45 @@
         "bridge": "0.2.14"
       }
     }
+  },
+  {
+    "product": "bridge",
+    "version": "0.2.15",
+    "devReleaseId": "rel_01M6BHCJJX54V91V3YWVHTDT4Y",
+    "promotedAt": "2026-11-01T12:58:35Z",
+    "by": "c383-release-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-11-01T12:36:24Z",
+      "soakEnd": "2026-11-01T12:58:35Z",
+      "workspace": "qa1",
+      "qaRun": "C383 D-C383-JM1 (Martin via the Coordinator, 'for now just ship everything'; C374). coordination/qa/VERDICTS.md 'C383 D-C383-JM1 re-run' 2026-11-01T12:56:25Z, fix lead, not independent: first contact through a long tool name PASS on the Jarvis mock (hold, approve, one recorded run, share removed). BOARD auto-roll 2026-11-01T12:52:19Z: connect 0.7.15 health ok. Soak waived like C374",
+      "platform": {
+        "core": "2fd86565e46eaec450bc9eb624e51afae91d159c",
+        "bridge": "0.2.15"
+      }
+    }
+  },
+  {
+    "product": "connect",
+    "version": "0.7.15",
+    "devReleaseId": "rel_01M6BJ0N1339AHJS2P6PWWH625",
+    "promotedAt": "2026-11-01T12:58:35Z",
+    "by": "c383-release-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-11-01T12:48:08Z",
+      "soakEnd": "2026-11-01T12:58:35Z",
+      "workspace": "qa1",
+      "qaRun": "C383 D-C383-JM1 (Martin via the Coordinator, 'for now just ship everything'; C374). coordination/qa/VERDICTS.md 'C383 D-C383-JM1 re-run' 2026-11-01T12:56:25Z, fix lead, not independent: first contact through a long tool name PASS on the Jarvis mock (hold, approve, one recorded run, share removed). BOARD auto-roll 2026-11-01T12:52:19Z: connect 0.7.15 health ok. Soak waived like C374",
+      "platform": {
+        "core": "2fd86565e46eaec450bc9eb624e51afae91d159c",
+        "bridge": "0.2.15"
+      }
+    }
   }
 ]
