@@ -994,5 +994,25 @@
         "bridge": "0.2.15"
       }
     }
+  },
+  {
+    "product": "knowledge",
+    "version": "0.1.32",
+    "devReleaseId": "rel_01M6K458AVFG9J1D5ZVJHD8JJW",
+    "promotedAt": "2026-11-04T23:24:38Z",
+    "by": "coordinator",
+    "decision": "C389",
+    "expedited": true,
+    "incident": "INC-20261104-01",
+    "evidence": {
+      "soakStart": "2026-11-04T11:22:14Z",
+      "soakEnd": "2026-11-04T23:24:38Z",
+      "workspace": "qa1",
+      "qaRun": "C389: knowledge#36/#37 suite 225/225; fix proven on the pinned GBrain 0.60.424 (legacy 1024 brain enables at 1024, needsDims passes its width, next boot no change); qa1 updated 0.1.32-dev.1 -> 0.1.32 2026-11-04T11:22:14Z outcome updated, health unchanged (DEV key rejected). Soak shortened on Martin's GO in chat ('yes, go') for Eyal's PROD Knowledge (INC-20261104-01)",
+      "platform": {
+        "core": "55196ada7c96035030fb49d955a3919dd8d64009",
+        "bridge": "0.2.15"
+      }
+    }
   }
 ]
