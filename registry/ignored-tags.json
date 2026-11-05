@@ -4,5 +4,23 @@
     "tag": "cli-v0.2.0",
     "reason": "pack failed (old Martin-Atrin URL of spec 0.1.26 in manifest 0.1.18); never published; superseded by cli-v0.2.1 (cli#7 a32ee53)",
     "decision": "C222"
+  },
+  {
+    "repo": "opt2-tealbrick-evolution",
+    "tag": "v0.4.0-dev.3",
+    "reason": "M1/M2 DEV pre-release (C370/C371): commit f4c8ba46 has no green Woodpecker push/tag pipeline; never published, never promotable; superseded by later evolution 0.4.x releases",
+    "decision": "C391"
+  },
+  {
+    "repo": "opt2-tealbrick-evolution",
+    "tag": "v0.4.0-dev.2",
+    "reason": "M1/M2 DEV pre-release (C370/C371): commit 02c0fe18 has no green Woodpecker push/tag pipeline; never published, never promotable; superseded by later evolution 0.4.x releases",
+    "decision": "C391"
+  },
+  {
+    "repo": "opt2-tealbrick-evolution",
+    "tag": "v0.4.0-dev.1",
+    "reason": "M1 DEV pre-release (C370) cut from hotfix/0.4.0-dev.1 with no merged PR (E1 since 2026-10-25); never published, never promotable; superseded by later evolution 0.4.x releases",
+    "decision": "C391"
   }
 ]
