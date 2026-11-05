@@ -1014,5 +1014,25 @@
         "bridge": "0.2.15"
       }
     }
+  },
+  {
+    "product": "knowledge",
+    "version": "0.1.33",
+    "devReleaseId": "rel_01M6NTHQECXCYZMP7WATR3RFEZ",
+    "promotedAt": "2026-11-05T12:29:48Z",
+    "by": "coordinator",
+    "decision": "C390",
+    "expedited": true,
+    "incident": "INC-20261104-01",
+    "evidence": {
+      "soakStart": "2026-11-05T12:28:51Z",
+      "soakEnd": "2026-11-05T12:29:48Z",
+      "workspace": "qa1",
+      "qaRun": "C390: knowledge#39 suite 228/228 (new gbrain-helper test runs the real helper); qa1 updated 0.1.32 -> 0.1.33 2026-11-05T12:28:51Z, health unchanged (DEV key rejected); helper_listening logged; a new agent area provisioned: gbrain-helper sources_add outcome=created ms=742. Diagnostics-only release for Eyal's helper_unavailable (knowledge#38). Martin in chat: 'go and punch it, we're presenting in 60 minutes' (C374 tested DEV -> PROD)",
+      "platform": {
+        "core": "55196ada7c96035030fb49d955a3919dd8d64009",
+        "bridge": "0.2.15"
+      }
+    }
   }
 ]
