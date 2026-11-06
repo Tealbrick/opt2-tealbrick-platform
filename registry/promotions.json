@@ -1034,5 +1034,25 @@
         "bridge": "0.2.15"
       }
     }
+  },
+  {
+    "product": "knowledge",
+    "version": "0.1.34",
+    "devReleaseId": "rel_01M6QHBXF3DFQ4QK30JCW6G0J2",
+    "promotedAt": "2026-11-06T04:31:00Z",
+    "by": "knowledge-lead",
+    "decision": "C390",
+    "expedited": true,
+    "incident": "INC-20261104-01",
+    "evidence": {
+      "soakStart": "2026-11-06T04:26:35Z",
+      "soakEnd": "2026-11-06T04:31:00Z",
+      "workspace": "qa1",
+      "qaRun": "C390: knowledge#40 suite 229/229 + conformance 0 fail (new manifest test: every service with a backup has a host env entry); qa1 updated 0.1.33 -> 0.1.34 2026-11-06T04:26:35Z, health unchanged (DEV key rejected); pre-update snapshot tb-preupdate-to-0.1.34 1100587 bytes (0.1.33: 212069), tb-exec 'backup dump finished exitCode=0' on gbrain-db and notebook-db at 04:26:08Z, no 'service not deployed' line (nightly 02:23Z backup before: parts=1, both dumps left out); tb-exec control ports on '::'; a new agent area provisioned on 0.1.34 (sources_add created 690 ms); recall via engine ok. ostra backups miss both db dumps today (02:23Z log). Coordinator agreed expedited in advance (C374 tested DEV -> PROD).",
+      "platform": {
+        "core": "55196ada7c96035030fb49d955a3919dd8d64009",
+        "bridge": "0.2.15"
+      }
+    }
   }
 ]
