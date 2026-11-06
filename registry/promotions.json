@@ -1094,5 +1094,25 @@
         "bridge": "0.2.15"
       }
     }
+  },
+  {
+    "product": "knowledge",
+    "version": "0.1.38",
+    "devReleaseId": "rel_01M6R76H8ACJRR14T3TG6FX440",
+    "promotedAt": "2026-11-06T11:00:00Z",
+    "by": "knowledge-lead",
+    "decision": "C396",
+    "expedited": true,
+    "incident": "INC-20261106-02",
+    "evidence": {
+      "soakStart": "2026-11-06T10:49:17Z",
+      "soakEnd": "2026-11-06T11:00:00Z",
+      "workspace": "qa1",
+      "qaRun": "INC-20261106-02 (research_ask failed on every OpenAI workspace: Open Notebook's esperanto sent top_p for the reasoning model gpt-6-luna, OpenAI 400, chat/execute 502). knowledge#48 squash 97a4f166, tag v0.1.38: checked build-time esperanto patch (gpt-6 family counts as reasoning; build fails if the anchor line is not found once; in-image assertion for gpt-6-luna, gpt-6-luna-20260922, gpt-6-sol, gpt-6-astra: no top_p/temperature, max_tokens->max_completion_tokens as gpt-5; negative build without the patch fails) + 'research engine call failed' cause log. Sonnet review no blocking; suite 245/245. qa1 0.1.37 -> 0.1.38 (pre-update snapshot 10:49:17Z), all 5 deployments SUCCESS, health check 100.64.0.1 200, forwarder listening, 'knowledge started engineState=ok'. Live: research_source_add + research_chat_start + research_ask -> 200 with an AI answer in 9 s, Open Notebook 'POST /api/chat/execute 200 OK' (was 502 on ostra). Expedited: Coordinator agreed after offline proof + qa1 rollout health.",
+      "platform": {
+        "core": "55196ada7c96035030fb49d955a3919dd8d64009",
+        "bridge": "0.2.15"
+      }
+    }
   }
 ]
