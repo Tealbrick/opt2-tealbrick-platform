@@ -1054,5 +1054,25 @@
         "bridge": "0.2.15"
       }
     }
+  },
+  {
+    "product": "knowledge",
+    "version": "0.1.36",
+    "devReleaseId": "rel_01M6QSPBGG6EB4ZAJGDBGAW5Y6",
+    "promotedAt": "2026-11-06T06:58:00Z",
+    "by": "knowledge-lead",
+    "decision": "C390",
+    "expedited": true,
+    "incident": "INC-20261104-01",
+    "evidence": {
+      "soakStart": "2026-11-06T06:50:46Z",
+      "soakEnd": "2026-11-06T06:58:00Z",
+      "workspace": "qa1",
+      "qaRun": "INC-20261104-01 (Eyal: research fails on an IPv6-only Railway private network, Errno 111 to notebook-db). knowledge#45 (0.1.35, rolled back on qa1: API_HOST=:: made uvicorn IPv6-only and Railway's IPv4 health check failed the deploy; never promoted) + knowledge#46 (0.1.36): notebook-db binds [::]:8000; the Open Notebook API keeps 0.0.0.0:5055 and ipv6-forward.ts listens on [::]:5055 (ipv6Only) -> 127.0.0.1:5055; crash loop stops the container. Local proof in the pinned images: surreal 0.0.0.0 -> ::1 refused 111, [::] -> 127.0.0.1 and ::1 connect; API ::1 /health 200 only through the forwarder; crash loop exit 137. Suite 235/235 + conformance 0 fail. qa1 0.1.34 -> 0.1.36 06:50:46Z outcome=updated: all deployments SUCCESS (Railway health check 100.64.0.1 GET /health 200), 'notebook ipv6 forwarder listening [::]:5055' + 'Uvicorn running on http://0.0.0.0:5055', notebook-db 'Started web server on [::]:8000', backup dumps exitCode 0; research_sources_list 200 ok via a probe agent, the app's /api calls arrive through the forwarder (source 127.0.0.1). Coordinator agreed expedited in advance.",
+      "platform": {
+        "core": "55196ada7c96035030fb49d955a3919dd8d64009",
+        "bridge": "0.2.15"
+      }
+    }
   }
 ]
