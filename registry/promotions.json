@@ -1174,5 +1174,25 @@
         "bridge": "0.2.16"
       }
     }
+  },
+  {
+    "product": "bridge",
+    "version": "0.2.17",
+    "devReleaseId": "rel_01M6RENDCFZ1FV46QHSPTRGTDX",
+    "promotedAt": "2026-11-06T13:00:14Z",
+    "by": "keys-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-11-06T12:58:49Z",
+      "soakEnd": "2026-11-06T13:00:14Z",
+      "workspace": "qa1",
+      "qaRun": "Keys lead: presentation-only polish of 0.2.16 (bridge#37: folded workspace defaults, \"Own value, not shared yet\"; no state, resolve or spec change). qa1 bridge 0.2.16 to 0.2.17 online 12:58:49Z, read-only key page look OK in light, dark and 375 px (BOARD stopped line after it). Function proof of the same code path: 0.2.16 on qa1, BOARD 2026-11-06T12:07:15Z. Sonnet review APPROVE. Soak waived like C374",
+      "platform": {
+        "core": "55196ada7c96035030fb49d955a3919dd8d64009",
+        "bridge": "0.2.17"
+      }
+    }
   }
 ]
