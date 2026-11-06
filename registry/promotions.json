@@ -1074,5 +1074,25 @@
         "bridge": "0.2.15"
       }
     }
+  },
+  {
+    "product": "knowledge",
+    "version": "0.1.37",
+    "devReleaseId": "rel_01M6R4Y0801TVWKG152JPHRWZH",
+    "promotedAt": "2026-11-06T10:20:00Z",
+    "by": "knowledge-lead",
+    "decision": "C396",
+    "expedited": true,
+    "incident": "INC-20261106-01",
+    "evidence": {
+      "soakStart": "2026-11-06T10:08:06Z",
+      "soakEnd": "2026-11-06T10:20:00Z",
+      "workspace": "qa1",
+      "qaRun": "INC-20261106-01 (S1: document edits never reached the memory engine since the GBrain 0.60.424 pin; slug case -> revision_required, request-id replay, silent failures, unbounded boot retry). knowledge#47 squash a40ce76, tag v0.1.37. Reviews r1+r2 no blocking; suite 241/241. qa1 0.1.36 -> 0.1.37 (pre-update snapshot 10:08:06Z), running 10:12:54Z health ok: 'projection retry after boot rows=4 stillFailed=0', 'engine catch-up queued requeued=4' then 'engine catch-up done ok=4 failed=0 pending=0'; Settings 'Documents in the memory engine 72 of 72' (was 64 of 72, 4 waiting, 4 failed); probe T2 and T4 recall return their latest text and their engine pages hold the latest version with the content marker; deleted probe T3 -> engine page gone (delete_page, engine_page_not_found). Probe agent deleted. Expedited: Coordinator confirmed (Martin called it critical).",
+      "platform": {
+        "core": "55196ada7c96035030fb49d955a3919dd8d64009",
+        "bridge": "0.2.15"
+      }
+    }
   }
 ]
