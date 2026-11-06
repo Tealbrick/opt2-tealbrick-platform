@@ -1114,5 +1114,45 @@
         "bridge": "0.2.15"
       }
     }
+  },
+  {
+    "product": "rules",
+    "version": "0.7.1",
+    "devReleaseId": "rel_01M6R77PF35YXYK8VE7JZ4EAJZ",
+    "promotedAt": "2026-11-06T10:58:28Z",
+    "by": "model-params-check",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-11-06T10:56:18Z",
+      "soakEnd": "2026-11-06T10:58:28Z",
+      "workspace": "qa1",
+      "qaRun": "Same class as Knowledge INC-20261106-02 (C396 stability check): OpenAI reasoning models (gpt-5*, gpt-6*, o1*, o3*, o4*; OpenAI 'Using GPT-6': remove temperature/top_p unless reasoning effort none, gpt-6-luna default medium) answer 400 to temperature 0. Rules model drafter sent temperature 0 on the OpenAI-compatible path -> drafting fell back to the parser. rules#54 squash 19052f1, tag v0.7.1. Woodpecker green; independent Sonnet review APPROVE (S3 only); local typecheck+lint, model-drafter 7/7. qa1 auto-roll C373m 0.7.0 -> 0.7.1 health ok 2026-11-06T10:56:18Z. Live model call not possible on qa1: no model role bound for rules (keys view) and the qa1 OpenAI key is expired.",
+      "platform": {
+        "core": "55196ada7c96035030fb49d955a3919dd8d64009",
+        "bridge": "0.2.15"
+      }
+    }
+  },
+  {
+    "product": "evolution",
+    "version": "0.4.4",
+    "devReleaseId": "rel_01M6R786RSH581RJMFBPWQ724V",
+    "promotedAt": "2026-11-06T10:58:28Z",
+    "by": "model-params-check",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-11-06T10:56:18Z",
+      "soakEnd": "2026-11-06T10:58:28Z",
+      "workspace": "qa1",
+      "qaRun": "Same class as Knowledge INC-20261106-02 (C396 stability check): OpenAI reasoning models (gpt-5*, gpt-6*, o1*, o3*, o4*; OpenAI 'Using GPT-6': remove temperature/top_p unless reasoning effort none, gpt-6-luna default medium) answer 400 to temperature 0. Evolution ai steps sent temperature 0 on the OpenAI-compatible and Anthropic paths (current Claude models also refuse it) -> step failed model_failed. evolution#47 squash 77bba53, tag v0.4.4. Woodpecker green; independent Sonnet review APPROVE (S3 only); local typecheck+lint+625/625 tests. qa1 auto-roll C373m 0.4.3 -> 0.4.4 health ok 2026-11-06T10:56:18Z. Live model call not possible on qa1: no model role bound for evolution (keys view) and the qa1 OpenAI key is expired.",
+      "platform": {
+        "core": "55196ada7c96035030fb49d955a3919dd8d64009",
+        "bridge": "0.2.15"
+      }
+    }
   }
 ]
