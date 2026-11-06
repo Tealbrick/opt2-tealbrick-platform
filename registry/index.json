@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-11-06T11:07:23.769Z",
+  "generatedAt": "2026-11-06T11:22:03.712Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -11069,6 +11069,45 @@
       "tag": "v0.1.38",
       "publishedAt": "2026-11-06T11:03:14.759Z",
       "promotedFrom": "rel_01M6R76H8ACJRR14T3TG6FX440"
+    },
+    {
+      "id": "rel_01M6R9C63ZH4FG5WPZ0GE1DBFZ",
+      "product": "knowledge",
+      "kind": "app",
+      "version": "0.1.39",
+      "channel": "dev",
+      "manifestDigest": "sha256:6f5aefa47d63df4d220f750feb5ce7acc9d0baf08d0e4cd740d5cf033626721a",
+      "manifestUrl": "https://raw.githubusercontent.com/Tealbrick/opt2-tealbrick-knowledge/cf27041533b43dc648db9b79b4d199509aedb52a/tealbrick.manifest.json",
+      "skillsDigest": "sha256:4cd98bc09d2e3a4cef7b8ff13877cb1541673c9b409fb489e3e19d08ef60ceac",
+      "image": "ghcr.io/tealbrick/opt2-tealbrick-knowledge@sha256:059d8fd68e848f9476bf984b3a981916a5d8a07ce996d4cd56c486ae7518ad11",
+      "artifact": null,
+      "source": null,
+      "runtime": null,
+      "services": [
+        {
+          "id": "gbrain",
+          "image": "ghcr.io/tealbrick/opt2-tealbrick-knowledge-gbrain@sha256:2becbc3ec8060a9cbad7f1a76d87da10e84b92dc403adcf9a0041bb9a1baa73e"
+        },
+        {
+          "id": "gbrain-db",
+          "image": "ghcr.io/tealbrick/opt2-tealbrick-knowledge-gbrain-db@sha256:5a84b79e6b1f0a0ccc996362d45104feb6648f1d06651650c948c2fa3da842c0"
+        },
+        {
+          "id": "notebook",
+          "image": "ghcr.io/tealbrick/opt2-tealbrick-knowledge-notebook@sha256:c24663b9314955419ab6e3c698cccae3915fd2fbc29173d492fc12a42b17c4ee"
+        },
+        {
+          "id": "notebook-db",
+          "image": "ghcr.io/tealbrick/opt2-tealbrick-knowledge-notebook-db@sha256:7d2def82b05647c5b3006f15b5f022731430d6b8072cf36cda4e94b5cb25fb62"
+        }
+      ],
+      "minOs": null,
+      "notarized": null,
+      "upgradeFrom": ">=0.1.20 <=0.1.38",
+      "repo": "Tealbrick/opt2-tealbrick-knowledge",
+      "commit": "cf27041533b43dc648db9b79b4d199509aedb52a",
+      "tag": "v0.1.39",
+      "publishedAt": "2026-11-06T11:19:49.119Z"
     },
     {
       "id": "rel_01M52QVZ23HYSABWGE6MZHPKZY",
