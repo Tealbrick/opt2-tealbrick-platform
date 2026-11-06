@@ -1154,5 +1154,25 @@
         "bridge": "0.2.15"
       }
     }
+  },
+  {
+    "product": "bridge",
+    "version": "0.2.16",
+    "devReleaseId": "rel_01M6RAQXNKSH9PV518P77RG25T",
+    "promotedAt": "2026-11-06T12:07:26Z",
+    "by": "keys-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-11-06T12:02:31Z",
+      "soakEnd": "2026-11-06T12:07:26Z",
+      "workspace": "qa1",
+      "qaRun": "Keys lead DEV proof on qa1 (Martin GO 2026-11-06 for /keys unification; C374). BOARD 2026-11-06T12:07:15Z: bridge 0.2.15 to 0.2.16 online; one fake DeepSeek key served Rules utility + Evolution dreaming overrides (keys.status roles set, labels only); conflict prompt against the existing OPENAI_API_KEY (no value shown, nothing picked); all removed, keys.status back to before. Lead proof, not an independent QA run; independent code review: Sonnet, 2 rounds APPROVE (bridge#36, specs#71). Soak waived like C374",
+      "platform": {
+        "core": "55196ada7c96035030fb49d955a3919dd8d64009",
+        "bridge": "0.2.16"
+      }
+    }
   }
 ]
