@@ -327,6 +327,16 @@ test("offers validation", () => {
   );
 });
 
+test("#102: the merged index carries each Offer's paddlePrice", () => {
+  const offers = validateOffers(JSON.parse(readFileSync(new URL("../registry/offers.json", import.meta.url), "utf8")));
+  const index = mergeIndex(null, [], offers, "t");
+  assert.deepEqual(
+    index.offers.map((o) => o.paddlePrice),
+    offers.map((o) => o.paddlePrice),
+  );
+  assert.equal(index.offers.find((o) => o.id === "off_01M4NAHN4CAF3GZ38J2YDHHJSX")?.paddlePrice.sandbox, "pri_01m763mtcway5b7bfhsdqkgt8k");
+});
+
 test("skills archive is sorted and complete", () => {
   const a = skillsArchive(
     {

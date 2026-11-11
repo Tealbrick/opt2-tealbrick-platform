@@ -25,7 +25,11 @@ const PROVIDERS = [
 export function liveOfferProblems(offers: readonly Offer[]): string[] {
   const out: string[] = [];
   for (const { field, test: dev } of PROVIDERS) {
-    const price = (o: Offer, m: "test" | "sandbox" | "live"): string | null => (o[field] as Record<string, string | null>)[m] ?? null;
+    const price = (o: Offer, m: "test" | "sandbox" | "live"): string | null => {
+      const v = (o[field] as Record<string, string | null | undefined>)[m];
+      if (v === undefined) throw new Error(`${o.id}: ${field}.${m} missing (run validateOffers first)`);
+      return v;
+    };
     const liveOn = offers.some((o) => price(o, "live") !== null);
     for (const o of offers) {
       const tag = `${o.id} (${o.name})`;
@@ -94,24 +98,33 @@ test("placeholders and a missing test price are refused", () => {
   assert.match(liveOfferProblems([offer({ stripePrice: { test: null, live: "price_l1" } })]).join(), /needs a test price/);
 });
 
-const PS = "pri_01aaaaaaaaaaaaaaaaaaaaaaaa";
-const PL = "pri_01bbbbbbbbbbbbbbbbbbbbbbbb";
+const PADDLE_SANDBOX_ID = "pri_01aaaaaaaaaaaaaaaaaaaaaaaa";
+const PADDLE_LIVE_ID = "pri_01bbbbbbbbbbbbbbbbbbbbbbbb";
 
 test("paddle: a priced offer needs a sandbox price; placeholders are refused", () => {
   assert.match(liveOfferProblems([offer({ paddlePrice: { sandbox: null, live: null } })]).join(), /needs a test price \(paddlePrice.sandbox\)/);
   assert.match(liveOfferProblems([offer({ paddlePrice: { sandbox: "pri_REPLACEknowledge", live: null } })]).join(), /paddlePrice.sandbox is a placeholder/);
-  assert.match(liveOfferProblems([offer({ paddlePrice: { sandbox: PS, live: "pri_TODO" } })]).join(), /paddlePrice.live is a placeholder/);
+  assert.match(liveOfferProblems([offer({ paddlePrice: { sandbox: PADDLE_SANDBOX_ID, live: "pri_TODO" } })]).join(), /paddlePrice.live is a placeholder/);
 });
 
 test("paddle: live on means every sellable offer has a live Paddle price", () => {
-  const p = liveOfferProblems([offer({ paddlePrice: { sandbox: PS, live: PL } }), offer({ name: "Connect", products: ["connect"] })]);
+  const p = liveOfferProblems([
+    offer({ paddlePrice: { sandbox: PADDLE_SANDBOX_ID, live: PADDLE_LIVE_ID } }),
+    offer({ name: "Connect", products: ["connect"] }),
+  ]);
   assert.equal(p.length, 1);
   assert.match(p[0] ?? "", /Connect.*paddlePrice.live/);
 });
 
 test("paddle: a dev-only product has no live Paddle price (only the sample-gate go-live proof offer)", () => {
-  assert.match(liveOfferProblems([offer({ products: ["sample-caller"], amount: 100, paddlePrice: { sandbox: PS, live: PL } })]).join(), /never sold live/);
-  assert.deepEqual(liveOfferProblems([offer({ products: ["sample-gate"], amount: 100, paddlePrice: { sandbox: PS, live: PL } })]), []);
+  assert.match(
+    liveOfferProblems([offer({ products: ["sample-caller"], amount: 100, paddlePrice: { sandbox: PADDLE_SANDBOX_ID, live: PADDLE_LIVE_ID } })]).join(),
+    /never sold live/,
+  );
+  assert.deepEqual(
+    liveOfferProblems([offer({ products: ["sample-gate"], amount: 100, paddlePrice: { sandbox: PADDLE_SANDBOX_ID, live: PADDLE_LIVE_ID } })]),
+    [],
+  );
   assert.deepEqual(
     liveOfferProblems([offer({ products: ["sample-pay"], amount: 0, stripePrice: { test: null, live: null }, paddlePrice: { sandbox: null, live: null } })]),
     [],
@@ -121,7 +134,7 @@ test("paddle: a dev-only product has no live Paddle price (only the sample-gate 
 test("Stripe and Paddle go live separately", () => {
   // Stripe live on does not demand Paddle live prices, and the other way round
   assert.deepEqual(liveOfferProblems([offer({ stripePrice: { test: "price_t1", live: "price_l1" } })]), []);
-  assert.deepEqual(liveOfferProblems([offer({ paddlePrice: { sandbox: PS, live: PL } })]), []);
+  assert.deepEqual(liveOfferProblems([offer({ paddlePrice: { sandbox: PADDLE_SANDBOX_ID, live: PADDLE_LIVE_ID } })]), []);
 });
 
 test("registry/offers.json: every priced offer has its Paddle sandbox price; live is null until go-live", () => {
