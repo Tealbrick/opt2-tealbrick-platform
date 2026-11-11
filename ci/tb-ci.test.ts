@@ -294,6 +294,7 @@ test("offers validation", () => {
     currency: "usd",
     taxNote: "Tax added at checkout",
     stripePrice: { test: "price_123", live: null },
+    paddlePrice: { sandbox: "pri_01m763mtcway5b7bfhsdqkgt8k", live: null },
   };
   assert.equal(validateOffers([ok]).length, 1);
   assert.throws(() => validateOffers([{ ...ok, id: "knowledge-v1" }]), /off_/);
@@ -301,10 +302,22 @@ test("offers validation", () => {
   assert.throws(() => validateOffers([{ ...ok, stripePrice: { test: "sk_test_x", live: null } }]), /price_/);
   assert.throws(() => validateOffers([ok, ok]), /duplicate/);
   // free fixture offers: DEV_ONLY_PRODUCTS only, no Stripe price
-  const free = { ...ok, products: ["sample-pay"], amount: 0, stripePrice: { test: null, live: null } };
+  const free = { ...ok, products: ["sample-pay"], amount: 0, stripePrice: { test: null, live: null }, paddlePrice: { sandbox: null, live: null } };
   assert.equal(validateOffers([free]).length, 1);
   assert.throws(() => validateOffers([{ ...free, products: ["knowledge"] }]), /DEV_ONLY_PRODUCTS/);
   assert.throws(() => validateOffers([{ ...free, stripePrice: { test: "price_123", live: null } }]), /no Stripe price/);
+  // paddlePrice {sandbox, live}: Paddle price ids (pri_<26 lowercase>) or null; a free offer has none
+  assert.throws(() => validateOffers([{ ...ok, paddlePrice: undefined }]), /paddlePrice \{sandbox, live\}/);
+  assert.throws(() => validateOffers([{ ...ok, paddlePrice: { test: "pri_01m763mtcway5b7bfhsdqkgt8k", live: null } }]), /paddlePrice \{sandbox, live\}/);
+  assert.throws(() => validateOffers([{ ...ok, paddlePrice: { sandbox: "price_123", live: null } }]), /paddlePrice.sandbox must be pri_/);
+  assert.throws(
+    () => validateOffers([{ ...ok, paddlePrice: { sandbox: "pri_01m763mtcway5b7bfhsdqkgt8k", live: "pri_short" } }]),
+    /paddlePrice.live must be pri_/,
+  );
+  assert.throws(() => validateOffers([{ ...ok, paddlePrice: { sandbox: "pri_01M763MTCWAY5B7BFHSDQKGT8K", live: null } }]), /pri_/);
+  const freePaddle = { ...free, paddlePrice: { sandbox: null, live: null } };
+  assert.equal(validateOffers([freePaddle]).length, 1);
+  assert.throws(() => validateOffers([{ ...freePaddle, paddlePrice: { sandbox: "pri_01m763mtcway5b7bfhsdqkgt8k", live: null } }]), /no Paddle price/);
   assert.throws(() => validateOffers([{ ...ok, amount: -1 }]), /amount/);
   // the reviewed registry input passes
   const offers = validateOffers(JSON.parse(readFileSync(new URL("../registry/offers.json", import.meta.url), "utf8")));
@@ -312,6 +325,16 @@ test("offers validation", () => {
     offers.filter((o) => o.amount === 0).map((o) => o.products[0]),
     ["sample-pay", "sample-mismatch"],
   );
+});
+
+test("#102: the merged index carries each Offer's paddlePrice", () => {
+  const offers = validateOffers(JSON.parse(readFileSync(new URL("../registry/offers.json", import.meta.url), "utf8")));
+  const index = mergeIndex(null, [], offers, "t");
+  assert.deepEqual(
+    index.offers.map((o) => o.paddlePrice),
+    offers.map((o) => o.paddlePrice),
+  );
+  assert.equal(index.offers.find((o) => o.id === "off_01M4NAHN4CAF3GZ38J2YDHHJSX")?.paddlePrice.sandbox, "pri_01m763mtcway5b7bfhsdqkgt8k");
 });
 
 test("skills archive is sorted and complete", () => {
@@ -1289,9 +1312,9 @@ test("ci-v9.6 template: pre-release step after gen; image-check and release-reco
     "node .tb-ci/tb-ci.ts pre-release\nnode .tb-ci/tb-ci.ts boot-smoke",
     "ci-v9.17: the boot smoke runs after the preReleaseChecks, in the same step",
   );
-  assert.match(tpl.split("\n")[0] as string, /ci-v9\.23/, "current template (ci-v9.23 keeps the ci-v9.6 pre-release step)");
+  assert.match(tpl.split("\n")[0] as string, /ci-v9\.24/, "current template (ci-v9.24 keeps the ci-v9.6 pre-release step)");
   const wf = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(wf, /TB_CI_REF: ci-v9\.23/);
+  assert.match(wf, /TB_CI_REF: ci-v9\.24/);
   const runner = readFileSync(new URL("./tb-ci.ts", import.meta.url), "utf8");
   const build = runner.slice(runner.indexOf("async function cmdGhBuild"), runner.indexOf("async function cmdGhPublish"));
   assert.ok(build.indexOf("runPreReleaseChecks(cfg, root)") > 0, "gh-build runs the checks on the tag");
@@ -2732,7 +2755,7 @@ test("ci-v9.10 C222: a published asset is never replaced", () => {
 test("ci-v9.10 C222 template: release.yaml = build without secret, publish runs no repo code and alone reads the secret", () => {
   const rel = readFileSync(new URL("./woodpecker/release.yaml", import.meta.url), "utf8");
   const ci = readFileSync(new URL("./woodpecker/ci.yaml", import.meta.url), "utf8");
-  assert.match(rel.split("\n")[0] as string, /template ci-v9\.23/);
+  assert.match(rel.split("\n")[0] as string, /template ci-v9\.24/);
   assert.match(rel, /GENERATED from Tealbrick\/opt2-tealbrick-platform: ci\/woodpecker\/release\.yaml/);
   const ref = /TB_CI_REF: (\S+)/.exec(ci)?.[1];
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
@@ -2903,11 +2926,11 @@ test("ci-v9.11 C232 template: step graph, secrets per step, no secret in any ste
   assert.match(rel, /GITHUB_TOKEN:\n {8}from_secret: tb_release_token\n/);
   // same template id and runner sha256 everywhere
   const sha = /TB_CI_SHA256: "([0-9a-f]{64})"/.exec(ci)?.[1];
-  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.23");
+  for (const m of rel.matchAll(/TB_CI_REF: (\S+)/g)) assert.equal(m[1], "ci-v9.24");
   for (const m of rel.matchAll(/TB_CI_SHA256: "([^"]*)"/g)) assert.equal(m[1], sha);
   const actions = readFileSync(new URL("./github/opt2-release.yml", import.meta.url), "utf8");
-  assert.match(actions, /TB_CI_REF: ci-v9\.23/);
-  assert.match(ci, /TB_CI_REF: ci-v9\.23/);
+  assert.match(actions, /TB_CI_REF: ci-v9\.24/);
+  assert.match(ci, /TB_CI_REF: ci-v9\.24/);
   assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
 });
 
@@ -3631,7 +3654,7 @@ test("ci-v9.14 template: osv-scan after setup beside install, image pinned by di
   assert.equal(stepScript(tpl, "osv-check"), "node .tb-ci/tb-ci.ts osv-check .tb-ci/osv.json");
   // the id and the runner hash are the same in every generated file
   for (const f of ["woodpecker/ci.yaml", "woodpecker/release.yaml", "github/opt2-release.yml"])
-    assert.match(readFileSync(new URL(`./${f}`, import.meta.url), "utf8"), /ci-v9\.23/, f);
+    assert.match(readFileSync(new URL(`./${f}`, import.meta.url), "utf8"), /ci-v9\.24/, f);
   assert.equal(readFileSync(new URL("./MIN_TEMPLATE", import.meta.url), "utf8").trim(), "ci-v9.9", "MIN_TEMPLATE is not raised by this change");
   const readme = readFileSync(new URL("./README.md", import.meta.url), "utf8");
   assert.match(readme, /^ci-v9\.14 \(C262\)/m, "template history entry");

@@ -287,6 +287,8 @@ export interface Offer {
   currency: string;
   taxNote: string;
   stripePrice: { test: string | null; live: string | null };
+  /** Paddle price ids (pri_…) per Paddle environment; null = not sold there. Replaces stripePrice with the registry contract ticket. */
+  paddlePrice: { sandbox: string | null; live: string | null };
 }
 
 /** C40/C40a: harness options as data, exactly the frozen PORTAL-API `HarnessOption` (types/routes.ts). Core syncs them. */
@@ -2102,7 +2104,7 @@ export function validateOffers(raw: unknown): Offer[] {
     if (r.kind === "single" && (r.products as unknown[]).length !== 1) fail("a single offer has exactly one product");
     if (!Number.isInteger(r.major) || (r.major as number) < 0) fail("major");
     if (!Number.isInteger(r.amount) || (r.amount as number) < 0) fail("amount (minor units)");
-    // Free fixture offer: amount 0 only for DEV_ONLY_PRODUCTS, single, no Stripe price (Core grants the licence with no
+    // Free fixture offer: amount 0 only for DEV_ONLY_PRODUCTS, single, no Stripe or Paddle price (Core grants the licence with no
     // checkout, only in dev-channel workspaces).
     const free = r.amount === 0;
     if (free && (r.kind !== "single" || !(r.products as unknown[]).every((p) => typeof p === "string" && isDevOnlyProduct(p))))
@@ -2115,6 +2117,13 @@ export function validateOffers(raw: unknown): Offer[] {
       const v = (sp as Record<string, unknown>)[m];
       if (v !== null && (typeof v !== "string" || !/^price_[A-Za-z0-9]+$/.test(v))) fail(`stripePrice.${m} must be price_… or null`);
       if (free && v !== null) fail(`a free offer has no Stripe price (stripePrice.${m} must be null)`);
+    }
+    const pp = r.paddlePrice as Record<string, unknown> | undefined;
+    if (!pp || typeof pp !== "object" || Object.keys(pp).sort().join(",") !== "live,sandbox") fail("paddlePrice {sandbox, live}");
+    for (const m of ["sandbox", "live"] as const) {
+      const v = (pp as Record<string, unknown>)[m];
+      if (v !== null && (typeof v !== "string" || !/^pri_[a-z0-9]{26}$/.test(v))) fail(`paddlePrice.${m} must be pri_… or null`);
+      if (free && v !== null) fail(`a free offer has no Paddle price (paddlePrice.${m} must be null)`);
     }
     return r as unknown as Offer;
   });
