@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-11-11T03:29:16.819Z",
+  "generatedAt": "2026-11-11T23:22:06.628Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -16853,6 +16853,10 @@
       "stripePrice": {
         "test": "price_1UNB0IAG4xme4qTLCUDHUahc",
         "live": "price_1USXoeAA68243rKpdt2xiTbJ"
+      },
+      "paddlePrice": {
+        "sandbox": "pri_01m763mtcway5b7bfhsdqkgt8k",
+        "live": null
       }
     },
     {
@@ -16869,6 +16873,10 @@
       "stripePrice": {
         "test": "price_1UNB0KAG4xme4qTLMlYhN0ay",
         "live": "price_1USXolAA68243rKpNQuguFqS"
+      },
+      "paddlePrice": {
+        "sandbox": "pri_01m763mtqsyh1fac48bt5hg1sy",
+        "live": null
       }
     },
     {
@@ -16885,6 +16893,10 @@
       "stripePrice": {
         "test": "price_1UPcfOAG4xme4qTLWkDxfc2g",
         "live": "price_1USXp1AA68243rKp56T3XnxA"
+      },
+      "paddlePrice": {
+        "sandbox": "pri_01m763mwn63r663xyacwwpkxhf",
+        "live": null
       }
     },
     {
@@ -16900,6 +16912,10 @@
       "taxNote": "Lifetime licence for this major version. Tax is added at checkout.",
       "stripePrice": {
         "test": "price_1UPcfQAG4xme4qTLvV0RUt7l",
+        "live": null
+      },
+      "paddlePrice": {
+        "sandbox": "pri_01m763mwzg0p8emjqbmvn1k7t0",
         "live": null
       }
     },
@@ -16917,6 +16933,10 @@
       "stripePrice": {
         "test": "price_1USXm7AG4xme4qTL6g4zpDjd",
         "live": "price_1USXooAA68243rKpQ4QyHt8L"
+      },
+      "paddlePrice": {
+        "sandbox": "pri_01m763mv349g018tvy919amba7",
+        "live": null
       }
     },
     {
@@ -16933,6 +16953,10 @@
       "stripePrice": {
         "test": "price_1USXm8AG4xme4qTLKxw0CMqF",
         "live": "price_1USXorAA68243rKpupHaevZY"
+      },
+      "paddlePrice": {
+        "sandbox": "pri_01m763mvcxr1ynht4v5nbc9jrb",
+        "live": null
       }
     },
     {
@@ -16949,6 +16973,10 @@
       "stripePrice": {
         "test": "price_1USXm8AG4xme4qTLs5BIiR7f",
         "live": "price_1USXotAA68243rKpQKyb8iGr"
+      },
+      "paddlePrice": {
+        "sandbox": "pri_01m763mvpx35mys5jfwm89ne38",
+        "live": null
       }
     },
     {
@@ -16965,6 +16993,10 @@
       "stripePrice": {
         "test": "price_1USXm9AG4xme4qTLIwtB18Qz",
         "live": "price_1USXowAA68243rKpKQR0GMCC"
+      },
+      "paddlePrice": {
+        "sandbox": "pri_01m763mw19t1j94nfwvd8adj7b",
+        "live": null
       }
     },
     {
@@ -16981,6 +17013,10 @@
       "stripePrice": {
         "test": "price_1USXmAAG4xme4qTLaAvfIvPQ",
         "live": "price_1USXozAA68243rKpj87U9wh9"
+      },
+      "paddlePrice": {
+        "sandbox": "pri_01m763mwb2ts1r6wx9f9k8y883",
+        "live": null
       }
     },
     {
@@ -16997,6 +17033,10 @@
       "stripePrice": {
         "test": null,
         "live": null
+      },
+      "paddlePrice": {
+        "sandbox": null,
+        "live": null
       }
     },
     {
@@ -17012,6 +17052,10 @@
       "taxNote": "Free test licence for a dev-only fixture app (dev-channel workspaces only).",
       "stripePrice": {
         "test": null,
+        "live": null
+      },
+      "paddlePrice": {
+        "sandbox": null,
         "live": null
       }
     }
