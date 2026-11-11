@@ -1194,5 +1194,25 @@
         "bridge": "0.2.17"
       }
     }
+  },
+  {
+    "product": "connect",
+    "version": "0.7.16",
+    "devReleaseId": "rel_01M7465SRT1JEFFZY1VPW2AB2C",
+    "promotedAt": "2026-11-11T02:21:00Z",
+    "by": "self-host-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-11-11T02:14:48Z",
+      "soakEnd": "2026-11-11T02:21:00Z",
+      "workspace": "self-host-1",
+      "qaRun": "Owner GO 2026-11-10 ('go now') to ship without the 24 h soak, like C374. Change: kit ui 0.7.2 only (packages#24: the Accounts access list shows 3 rows with View more; a search shows every match, 200 at a time), plus C393 already on main. connect#57 (0.7.16-dev.1) and connect#58 (0.7.16, no code change) Woodpecker green; local typecheck 0, lint/check-system clean, tests 612/612; kit check:rendered 0 failures. Not observed running on a DEV workspace before this promotion. Soak waived like C374",
+      "platform": {
+        "core": "eccc5c0e65542360ad7014ce038af4cee5265bc1",
+        "bridge": "0.2.17"
+      }
+    }
   }
 ]
