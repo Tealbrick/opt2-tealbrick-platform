@@ -1,4 +1,4 @@
-# opt2 CI standard (template ci-v9.23)
+# opt2 CI standard (template ci-v9.24)
 
 One Woodpecker pipeline for every opt2 repo. It is an enforced standard, not a convention:
 every repo's `.woodpecker/ci.yaml` is a byte-identical copy of `ci/woodpecker/ci.yaml`, and the
@@ -194,6 +194,8 @@ Never run a global `docker/podman system prune` on the CI host (shared daemon).
 4. Raise `ci/MIN_TEMPLATE` by a separate PR only after every repo in `OPT2_REPOS` runs the new template (`template-audit` shows it).
 
 ## Template history (newest first)
+ci-v9.24 (platform#102): `validateOffers` requires Offer `paddlePrice: {sandbox, live}` (each a Paddle price id `pri_` + 26 lower-case characters, or null; a free fixture offer has both null) beside `stripePrice`, so the registry-sync signer carries it into the signed index. Runner re-stamped; steps unchanged; MIN_TEMPLATE unchanged; no repo needs to adopt.
+
 ci-v9.23 (C373, G-2): `release-record` and the registry-sync signer load `@opt2-tealbrick/manifest` 0.1.35 with `@opt2-tealbrick/spec` 0.1.78 (the spec version manifest 0.1.35 depends on; both sha512-pinned on the dist host, integrity equal to the published `.integrity` assets; ajv unchanged). Manifest 0.1.35 knows the top-level `needsTopology` (M-TP-1: needs `needsAgentDirectory`); manifest 0.1.31 refuses it as an additional property, which would refuse Governance 0.3.1 at release-record and in registry-sync. Dry run: all 223 app records in registry/index.json re-validate under 0.1.35 with unchanged `manifestDigest`. Runner and steps unchanged; MIN_TEMPLATE unchanged.
 
 ci-v9.22 (C373): `release-record` and the registry-sync signer load `@opt2-tealbrick/manifest` 0.1.31 with `@opt2-tealbrick/spec` 0.1.64 (the spec version manifest 0.1.31 depends on; both sha512-pinned on the dist host, integrity equal to the published `.integrity` assets; ajv 8.18.0 unchanged). Manifest 0.1.31 knows `settings.modelRoles` (model roles C330(4), MANIFEST §7.1, M-MR-1..5); manifest 0.1.30 refuses the field as an additional property, which failed the Evolution v0.4.0-dev.3 tag pipeline (Woodpecker #125, step `release-record`). Dry run before the change: all 190 app records in the signed index (168 distinct manifests, stable + dev) re-validate under 0.1.31 with an unchanged `manifestDigest`, none refused; Evolution v0.4.0-dev.3 passes `release-record` under the new pins and fails under the ci-v9.21 pins. Steps unchanged; `MIN_TEMPLATE` stays `ci-v9.9`. **Migration:** only a repo whose manifest declares `settings.modelRoles` must adopt (`node ci/tb-ci.ts adopt <repoDir> --kind <kind>` after the tag `ci-v9.22` exists) and then cut a NEW tag (tags are never moved).
