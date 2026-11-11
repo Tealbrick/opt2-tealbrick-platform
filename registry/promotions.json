@@ -1214,5 +1214,25 @@
         "bridge": "0.2.17"
       }
     }
+  },
+  {
+    "product": "bridge",
+    "version": "0.2.18",
+    "devReleaseId": "rel_01M749YW73BQHRH38ATCCMPKVX",
+    "promotedAt": "2026-11-11T03:24:01Z",
+    "by": "self-host-lead",
+    "decision": "C374",
+    "expedited": true,
+    "incident": "INC-NONE-C374-martin-dev-tested-to-prod",
+    "evidence": {
+      "soakStart": "2026-11-11T03:20:55Z",
+      "soakEnd": "2026-11-11T03:24:01Z",
+      "workspace": "self-host-1",
+      "qaRun": "Owner hotfix order 2026-11-11 ('this is a hotfix, top priority needs to happen asap'): the key page Model field becomes a list from the provider's own list-models address (bridge#38, D-30 open, specs#73). Woodpecker green on PR and main; tests 647/647; independent Sonnet review, 6 findings fixed (no key leak, no csrf bypass). Browser check (Playwright) on a test bridge with a fake provider: list of the role's models, typed-name fallback on a refused key and for Azure, one enabled model field, save sets the role. Not observed on a DEV workspace before this promotion. Soak waived like C374",
+      "platform": {
+        "core": "eccc5c0e65542360ad7014ce038af4cee5265bc1",
+        "bridge": "0.2.18"
+      }
+    }
   }
 ]
