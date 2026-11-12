@@ -5,6 +5,9 @@
 //                                                      sets them with `railway variable set <NAME> --stdin --skip-deploys`
 //   options: --only NAME[,NAME…]  set only these names (e.g. to replace one wrong value; TB_KEK is never replaced)
 //            --skip-stripe-preflight  emergency only: do not check the permissions of an rk_ Stripe key before storing
+// core#85: PADDLE_API_KEY (Core), PADDLE_WEBHOOK_SECRET (Core) and PADDLE_CLIENT_TOKEN (GUI) are optional: the LIVE Portal
+//   runs on Paddle sandbox until go-live (sandbox key + test_ token, no webhook secret), then on live keys with
+//   TB_PADDLE_ALLOW_LIVE=1 (set by the cutover lead, not here). Set them with --only PADDLE_API_KEY,PADDLE_CLIENT_TOKEN.
 // Stripe preflight: an rk_ key is first tried with three read-only calls (price, customers, checkout sessions) against
 // https://api.stripe.com. If one fails, NOTHING is stored. The key is never printed (see stripePreflight).
 // Rules: values are never printed, never on argv, never in a file. Nothing is deployed (--skip-deploys); the cutover lead
@@ -85,6 +88,34 @@ export const SECRETS: readonly SecretSpec[] = [
     label: "Stripe webhook signing secret of https://portal.tealbrick.com/api/v1/stripe/webhook, in the SAME mode as the key (whsec_…)",
     pattern: /^whsec_[A-Za-z0-9]{20,}$/,
     hint: "must start with whsec_",
+  },
+  {
+    name: "PADDLE_API_KEY",
+    service: "portal-core",
+    source: "prompt",
+    required: false,
+    label: "Paddle API key of THIS environment: sandbox (pdl_sdbx_apikey_…) until go-live, then live (pdl_live_apikey_…) (Enter = skip)",
+    // Paddle's documented key format. Core refuses a live key until TB_PADDLE_ALLOW_LIVE=1.
+    pattern: /^pdl_(live|sdbx)_apikey_[a-z\d]{26}_[a-zA-Z\d]{22}_[a-zA-Z\d]{3}$/,
+    hint: "must be a whole Paddle API key: pdl_sdbx_apikey_… (sandbox) or pdl_live_apikey_… (live)",
+  },
+  {
+    name: "PADDLE_WEBHOOK_SECRET",
+    service: "portal-core",
+    source: "prompt",
+    required: false,
+    label: "Paddle notification destination secret of https://portal.tealbrick.com/api/v1/paddle/webhook, same Paddle environment as the key (Enter = skip)",
+    pattern: /^\S{20,}$/,
+    hint: "at least 20 characters, no spaces",
+  },
+  {
+    name: "PADDLE_CLIENT_TOKEN",
+    service: "portal-gui",
+    source: "prompt",
+    required: false,
+    label: "Paddle client-side token, same Paddle environment as the key: test_… (sandbox) or live_… (Enter = skip)",
+    pattern: /^(test|live)_[A-Za-z0-9]{10,}$/,
+    hint: "must start with test_ (sandbox) or live_ (live)",
   },
   {
     name: "RAILWAY_OAUTH_CLIENT_ID",
@@ -211,6 +242,29 @@ export function stripeModeNotes(collected: readonly { spec: { name: string }; va
     if (!collected.some((c) => c.spec.name === "STRIPE_WEBHOOK_SECRET"))
       notes.push("Also set STRIPE_WEBHOOK_SECRET from the LIVE webhook endpoint (--only STRIPE_WEBHOOK_SECRET): a test-mode secret cannot verify live events.");
   } else notes.push("STRIPE_SECRET_KEY is a TEST key. Core runs in Stripe test mode; the cutover lead removes TB_STRIPE_ALLOW_LIVE.");
+  return notes;
+}
+
+/** core#85: what the operator must know after setting Paddle values (modes only, never a value). */
+export function paddleModeNotes(collected: readonly { spec: { name: string }; value: string }[]): string[] {
+  const value = (name: string): string | undefined => collected.find((c) => c.spec.name === name)?.value;
+  const key = value("PADDLE_API_KEY");
+  const token = value("PADDLE_CLIENT_TOKEN");
+  const keyMode = key ? (key.startsWith("pdl_live_") ? "live" : "sandbox") : null;
+  const tokenMode = token ? (token.startsWith("live_") ? "live" : "sandbox") : null;
+  const notes: string[] = [];
+  if (keyMode && tokenMode && keyMode !== tokenMode)
+    notes.push(
+      `WARNING: PADDLE_API_KEY is ${keyMode} but PADDLE_CLIENT_TOKEN is ${tokenMode}: they belong to different Paddle environments and checkout will fail. Replace one with --only.`,
+    );
+  if (keyMode === "live") {
+    notes.push("PADDLE_API_KEY is a LIVE key. Core takes payments only after the cutover lead sets TB_PADDLE_ALLOW_LIVE=1.");
+    if (!value("PADDLE_WEBHOOK_SECRET"))
+      notes.push(
+        "Also set PADDLE_WEBHOOK_SECRET from the LIVE notification destination (--only PADDLE_WEBHOOK_SECRET): a sandbox secret cannot verify live events.",
+      );
+  } else if (keyMode === "sandbox" || tokenMode === "sandbox")
+    notes.push("Paddle values are sandbox: this Portal takes test payments only (Paddle test cards).");
   return notes;
 }
 
@@ -482,7 +536,7 @@ async function main(): Promise<void> {
     // storeSecrets runs the Stripe key preflight first (an rk_ key): if it fails, nothing is stored.
     await storeSecrets(collected, opts, { set: (spec, value) => railway(railwaySetArgs(spec.name, spec.service, opts.environment), dir, value) }, values);
     const kekId = collected.find((c) => c.spec.name === "TB_KEK_ID")?.value;
-    for (const l of stripeModeNotes(collected)) console.log(l);
+    for (const l of [...stripeModeNotes(collected), ...paddleModeNotes(collected)]) console.log(l);
     console.log('done. Nothing was deployed. Tell the cutover lead: "secrets are set".');
     if (kekId)
       console.log(`TB_KEK_ID = ${kekId} (not secret). Copy TB_KEK from the Railway dashboard into Vaultwarden now; write the id in ops/ROTATION-LOG.md.`);
