@@ -9,6 +9,9 @@ const GHP = ["ghp", "abcdefghijklmnopqrstuvwxyz0123"].join("_");
 const GHS = ["ghs", "abcdefghij12"].join("_");
 const WHSEC = ["whsec", "abcdefgh123"].join("_");
 const GPAT = ["github", "pat", "11ABCDEFG0123456789", "abcdefghijkl"].join("_");
+const PDL = ["pdl", "sdbx", "apikey", "a1".repeat(13), "B2".repeat(11), "c3d"].join("_");
+const NTF = ["pdl", "ntfset", "e4".repeat(6), "F5".repeat(8)].join("_");
+const CTOK = ["live", `${"G6".repeat(13)}H`].join("_");
 
 test("redact: every token pattern is masked (GitHub, PAT, Stripe, webhook, bearer)", () => {
   const text = `a ${SK} b ${RK} c ${GHP} d ${GHS} e ${WHSEC} f ${GPAT} g Bearer abc.def-ghi_123`;
@@ -44,4 +47,10 @@ test("redact: strips terminal control sequences (ANSI colours, OSC titles)", () 
 test("redact: quiet on ordinary text", () => {
   assert.equal(redact("pnpm test: 120 passed, sk_ is a prefix, Bearer x"), "pnpm test: 120 passed, sk_ is a prefix, Bearer x");
   assert.equal(redact("railway: service portal-core not found", []), "railway: service portal-core not found");
+});
+
+test("redact: Paddle API keys, notification secrets and client tokens (portal-core#83)", () => {
+  const out = redact(`k ${PDL} n ${NTF} t ${CTOK}`);
+  for (const secret of [PDL, NTF, CTOK]) assert.ok(!out.includes(secret), secret);
+  assert.equal(out.split(MASK).length - 1, 3);
 });
