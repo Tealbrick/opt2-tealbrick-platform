@@ -1,6 +1,6 @@
 {
   "schema": "opt2.release-index/v2",
-  "generatedAt": "2026-11-12T14:56:23.141Z",
+  "generatedAt": "2026-11-12T16:06:44.257Z",
   "releases": [
     {
       "id": "rel_01M4NBT0WBKCMFBFNTJG0BF3PR",
@@ -16907,7 +16907,7 @@
         "live": "price_1USXoeAA68243rKpdt2xiTbJ"
       },
       "paddlePrice": {
-        "sandbox": "pri_01m763mtcway5b7bfhsdqkgt8k",
+        "sandbox": "pri_01m787kmgtww85g82z2be969nv",
         "live": null
       }
     },
@@ -16927,7 +16927,7 @@
         "live": "price_1USXolAA68243rKpNQuguFqS"
       },
       "paddlePrice": {
-        "sandbox": "pri_01m763mtqsyh1fac48bt5hg1sy",
+        "sandbox": "pri_01m787knbcq74qneebt887de10",
         "live": null
       }
     },
@@ -16947,7 +16947,7 @@
         "live": "price_1USXp1AA68243rKp56T3XnxA"
       },
       "paddlePrice": {
-        "sandbox": "pri_01m763mwn63r663xyacwwpkxhf",
+        "sandbox": "pri_01m787kp06as1mkh5tdfzh0mca",
         "live": null
       }
     },
@@ -16967,7 +16967,7 @@
         "live": null
       },
       "paddlePrice": {
-        "sandbox": "pri_01m763mwzg0p8emjqbmvn1k7t0",
+        "sandbox": "pri_01m787kpmdmkzx11vgyjn2s8pb",
         "live": null
       }
     },
@@ -16987,7 +16987,7 @@
         "live": "price_1USXooAA68243rKpQ4QyHt8L"
       },
       "paddlePrice": {
-        "sandbox": "pri_01m763mv349g018tvy919amba7",
+        "sandbox": "pri_01m787kq8ztezvqpwvft9cs8gs",
         "live": null
       }
     },
@@ -17007,7 +17007,7 @@
         "live": "price_1USXorAA68243rKpupHaevZY"
       },
       "paddlePrice": {
-        "sandbox": "pri_01m763mvcxr1ynht4v5nbc9jrb",
+        "sandbox": "pri_01m787kqxf20kyrc4ybg0mb333",
         "live": null
       }
     },
@@ -17027,7 +17027,7 @@
         "live": "price_1USXotAA68243rKpQKyb8iGr"
       },
       "paddlePrice": {
-        "sandbox": "pri_01m763mvpx35mys5jfwm89ne38",
+        "sandbox": "pri_01m787krpkbq05bpfyxn5z45f2",
         "live": null
       }
     },
@@ -17047,7 +17047,7 @@
         "live": "price_1USXowAA68243rKpKQR0GMCC"
       },
       "paddlePrice": {
-        "sandbox": "pri_01m763mw19t1j94nfwvd8adj7b",
+        "sandbox": "pri_01m787ksb47rt6ys1h52jac77x",
         "live": null
       }
     },
@@ -17067,7 +17067,7 @@
         "live": "price_1USXozAA68243rKpj87U9wh9"
       },
       "paddlePrice": {
-        "sandbox": "pri_01m763mwb2ts1r6wx9f9k8y883",
+        "sandbox": "pri_01m787kszqhcgy9zxnmkzdym8y",
         "live": null
       }
     },
