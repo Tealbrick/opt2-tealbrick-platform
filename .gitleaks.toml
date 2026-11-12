@@ -5,3 +5,16 @@ useDefault = true
 [[allowlists]]
 description = "public signed release index envelope and Portal key-set statement"
 paths = ['''^registry/index\.jws$''', '''^registry/portal-keyset\.jws$''', '''^registry/portal-keyset\.live\.jws$''']
+
+# Paddle (portal-core#83): API keys, notification-destination secrets and client-side tokens (Paddle docs, 2026-11).
+[[rules]]
+id = "paddle-api-key"
+description = "Paddle Billing API key"
+regex = '''\bpdl_(?:live|sdbx)_apikey_[a-z0-9]{26}_[A-Za-z0-9]{22}_[A-Za-z0-9]{3}\b'''
+keywords = ["pdl_live_apikey_", "pdl_sdbx_apikey_"]
+
+[[rules]]
+id = "paddle-notification-secret"
+description = "Paddle notification destination secret"
+regex = '''\bpdl_ntfset_[A-Za-z0-9]{10,}_[A-Za-z0-9]{10,}\b'''
+keywords = ["pdl_ntfset_"]

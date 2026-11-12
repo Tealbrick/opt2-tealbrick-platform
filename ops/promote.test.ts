@@ -18,6 +18,8 @@ import {
   recordPath,
   rollbackCommand,
   smokeHost,
+  webhookProbe,
+  webhookRefused,
 } from "./promote.ts";
 
 const sha = (c: string) => c.repeat(40);
@@ -207,4 +209,14 @@ test("hotfix sets: RS-7.1 → RS-7, RS-7.2 → RS-7.1, RS-8 → RS-7 or RS-7.<h>
   assert.throws(() => parseSet(base({ id: "RS-8", previous: "RS-6.1" })), /RS-7 or one of its hotfixes/);
   assert.equal(parseArgs(["--set", "r/RS-7.1.json"]).setFile, "r/RS-7.1.json");
   assert.equal(rollbackCommand(parseSet(base({ id: "RS-7.1", previous: "RS-7" })), "/x/RS-7.1.json"), "node ops/promote.ts --rollback --set /x/RS-7.json");
+});
+
+test("payment webhook smoke: Paddle route when it answers 401, else Stripe; either signature error counts", () => {
+  assert.deepEqual(webhookProbe(404).path, "/api/v1/stripe/webhook");
+  assert.deepEqual(webhookProbe(401).path, "/api/v1/paddle/webhook");
+  assert.deepEqual(webhookProbe(0).path, "/api/v1/stripe/webhook", "unreachable: the Stripe route, which every Core before the removal serves");
+  assert.equal(webhookRefused(401, '{"error":"webhook_signature_invalid"}'), true);
+  assert.equal(webhookRefused(401, '{"error":"stripe_signature_invalid"}'), true);
+  assert.equal(webhookRefused(401, '{"error":"unauthenticated"}'), false);
+  assert.equal(webhookRefused(200, '{"error":"webhook_signature_invalid"}'), false);
 });

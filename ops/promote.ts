@@ -331,6 +331,19 @@ async function httpCheck(
   return { check: name, ok: false, detail: "unreachable" };
 }
 
+/** portal-core#83: the payment webhook refuses an unsigned POST with 401 and its signature error. Provider-neutral: Paddle's
+ *  `webhook_signature_invalid` once Core serves it, Stripe's `stripe_signature_invalid` until Stripe is removed. */
+export function webhookRefused(status: number, body: string): boolean {
+  return status === 401 && (body.includes("webhook_signature_invalid") || body.includes("stripe_signature_invalid"));
+}
+
+/** The payment webhook route to probe: Paddle's when it already refuses an unsigned POST (401), else Stripe's. */
+export function webhookProbe(paddleStatus: number): { path: string; headers: Record<string, string> } {
+  return paddleStatus === 401
+    ? { path: "/api/v1/paddle/webhook", headers: { "paddle-signature": "ts=1;h1=00" } }
+    : { path: "/api/v1/stripe/webhook", headers: { "stripe-signature": "t=1,v1=00" } };
+}
+
 async function smoke(ctx: Ctx, service: ServiceName): Promise<{ check: string; ok: boolean; detail: string }[]> {
   if (service === "admin-gui") {
     // Admin GUI: only /healthz (no anonymous admin page). No domain yet = Railway health check only.
@@ -349,19 +362,24 @@ async function smoke(ctx: Ctx, service: ServiceName): Promise<{ check: string; o
     // (after migrations) is then the Core smoke, and the gateway checks run in the GUI step.
     if (service === "portal-core" && !(await runningSha(ctx, "portal-gui")))
       return [{ check: "gateway", ok: true, detail: "portal-gui not deployed yet: Core = Railway health check only; gateway checked in the GUI step" }];
+    const paddleStatus = await fetch(`${gui}/api/v1/paddle/webhook`, {
+      method: "POST",
+      headers: { "paddle-signature": "ts=1;h1=00", "content-type": "application/json" },
+      body: "{}",
+      redirect: "manual",
+      signal: AbortSignal.timeout(15_000),
+    })
+      .then((r) => r.status)
+      .catch(() => 0);
+    const probe = webhookProbe(paddleStatus);
     return [
       await httpCheck("gui / 200", `${gui}/`, (r) => r.status === 200),
       await httpCheck("gateway → Core: /api/v1/me 401 error", `${gui}/api/v1/me`, (r, b) => r.status === 401 && b.includes('"error"')),
-      await httpCheck(
-        "stripe webhook refuses an unsigned POST (401)",
-        `${gui}/api/v1/stripe/webhook`,
-        (r, b) => r.status === 401 && b.includes("stripe_signature_invalid"),
-        {
-          method: "POST",
-          headers: { "stripe-signature": "t=1,v1=00", "content-type": "application/json" },
-          body: "{}",
-        },
-      ),
+      await httpCheck(`payment webhook refuses an unsigned POST (401) at ${probe.path}`, `${gui}${probe.path}`, (r, b) => webhookRefused(r.status, b), {
+        method: "POST",
+        headers: { ...probe.headers, "content-type": "application/json" },
+        body: "{}",
+      }),
     ];
   }
   const web = await publicUrl(ctx, "website");

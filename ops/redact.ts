@@ -4,12 +4,16 @@
 // rule only in site-deploy-plugin-publish, the value-length floor was 4 in one copy and 8 in another).
 // ops/site-deploy-plugin/site-deploy.ts keeps its own copy: that directory is a separate image build context.
 
-/** Patterns that must never reach a terminal: GitHub tokens and PATs, Stripe keys, webhook secrets, bearer and Authorization headers. */
+/** Patterns that must never reach a terminal: GitHub tokens and PATs, Stripe keys, Paddle API keys, notification secrets and
+ *  client tokens, webhook secrets, bearer and Authorization headers. */
 const PATTERNS: readonly RegExp[] = [
   /\bgh[pousr]_[A-Za-z0-9]{10,}\b/g,
   /\bgithub_pat_[A-Za-z0-9_]{10,}\b/g,
   /\b(?:rk|sk|pk)_(?:live|test)_[A-Za-z0-9]{8,}\b/g,
   /\bwhsec_[A-Za-z0-9]{8,}\b/g,
+  /\bpdl_(?:live|sdbx)_apikey_[A-Za-z0-9_]{8,}\b/g,
+  /\bpdl_ntfset_[A-Za-z0-9_]{8,}\b/g,
+  /\b(?:live|test)_[A-Za-z0-9]{27}\b/g,
   /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
 ];
 const AUTH_HEADER = /(authorization:\s*)\S+(\s+\S+)?/gi;
