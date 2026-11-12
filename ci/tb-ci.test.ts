@@ -294,7 +294,7 @@ test("offers validation", () => {
     currency: "usd",
     taxNote: "Tax added at checkout",
     stripePrice: { test: "price_123", live: null },
-    paddlePrice: { sandbox: "pri_01m763mtcway5b7bfhsdqkgt8k", live: null },
+    paddlePrice: { sandbox: "pri_01m787kmgtww85g82z2be969nv", live: null },
   };
   assert.equal(validateOffers([ok]).length, 1);
   assert.throws(() => validateOffers([{ ...ok, id: "knowledge-v1" }]), /off_/);
@@ -308,16 +308,16 @@ test("offers validation", () => {
   assert.throws(() => validateOffers([{ ...free, stripePrice: { test: "price_123", live: null } }]), /no Stripe price/);
   // paddlePrice {sandbox, live}: Paddle price ids (pri_<26 lowercase>) or null; a free offer has none
   assert.throws(() => validateOffers([{ ...ok, paddlePrice: undefined }]), /paddlePrice \{sandbox, live\}/);
-  assert.throws(() => validateOffers([{ ...ok, paddlePrice: { test: "pri_01m763mtcway5b7bfhsdqkgt8k", live: null } }]), /paddlePrice \{sandbox, live\}/);
+  assert.throws(() => validateOffers([{ ...ok, paddlePrice: { test: "pri_01m787kmgtww85g82z2be969nv", live: null } }]), /paddlePrice \{sandbox, live\}/);
   assert.throws(() => validateOffers([{ ...ok, paddlePrice: { sandbox: "price_123", live: null } }]), /paddlePrice.sandbox must be pri_/);
   assert.throws(
-    () => validateOffers([{ ...ok, paddlePrice: { sandbox: "pri_01m763mtcway5b7bfhsdqkgt8k", live: "pri_short" } }]),
+    () => validateOffers([{ ...ok, paddlePrice: { sandbox: "pri_01m787kmgtww85g82z2be969nv", live: "pri_short" } }]),
     /paddlePrice.live must be pri_/,
   );
   assert.throws(() => validateOffers([{ ...ok, paddlePrice: { sandbox: "pri_01M763MTCWAY5B7BFHSDQKGT8K", live: null } }]), /pri_/);
   const freePaddle = { ...free, paddlePrice: { sandbox: null, live: null } };
   assert.equal(validateOffers([freePaddle]).length, 1);
-  assert.throws(() => validateOffers([{ ...freePaddle, paddlePrice: { sandbox: "pri_01m763mtcway5b7bfhsdqkgt8k", live: null } }]), /no Paddle price/);
+  assert.throws(() => validateOffers([{ ...freePaddle, paddlePrice: { sandbox: "pri_01m787kmgtww85g82z2be969nv", live: null } }]), /no Paddle price/);
   assert.throws(() => validateOffers([{ ...ok, amount: -1 }]), /amount/);
   // the reviewed registry input passes
   const offers = validateOffers(JSON.parse(readFileSync(new URL("../registry/offers.json", import.meta.url), "utf8")));
@@ -334,7 +334,7 @@ test("#102: the merged index carries each Offer's paddlePrice", () => {
     index.offers.map((o) => o.paddlePrice),
     offers.map((o) => o.paddlePrice),
   );
-  assert.equal(index.offers.find((o) => o.id === "off_01M4NAHN4CAF3GZ38J2YDHHJSX")?.paddlePrice.sandbox, "pri_01m763mtcway5b7bfhsdqkgt8k");
+  assert.equal(index.offers.find((o) => o.id === "off_01M4NAHN4CAF3GZ38J2YDHHJSX")?.paddlePrice.sandbox, "pri_01m787kmgtww85g82z2be969nv");
 });
 
 test("skills archive is sorted and complete", () => {
