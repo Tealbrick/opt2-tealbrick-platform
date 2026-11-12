@@ -8,6 +8,7 @@ import {
   firstPriceId,
   generateKek,
   kekIdOf,
+  paddleModeNotes,
   parseArgs,
   planLines,
   railwaySetArgs,
@@ -55,7 +56,15 @@ test("parseArgs/selectSpecs: --only takes known names; TB_KEK and TB_KEK_ID trav
 test("SECRETS: no flag or non-secret config sneaks in; dev-only knobs are absent", () => {
   const names = SECRETS.map((s) => s.name);
   assert.equal(new Set(names).size, names.length, "unique names");
-  for (const forbidden of ["TB_RELEASE_DEV_FALLBACK", "TB_STRIPE_QA_PROMO", "TB_PORTAL_KEY_ROTATE_NOW", "TB_KEK_PREVIOUS", "DATABASE_URL", "PORTAL_PUBLIC_URL"])
+  for (const forbidden of [
+    "TB_RELEASE_DEV_FALLBACK",
+    "TB_STRIPE_QA_PROMO",
+    "TB_PORTAL_KEY_ROTATE_NOW",
+    "TB_KEK_PREVIOUS",
+    "DATABASE_URL",
+    "PORTAL_PUBLIC_URL",
+    "TB_PADDLE_ALLOW_LIVE",
+  ])
     assert.ok(!names.includes(forbidden), forbidden);
   for (const s of SECRETS) assert.ok(["portal-core", "portal-gui", "db-backup"].includes(s.service));
 });
@@ -132,6 +141,51 @@ test("C231 stripeModeNotes: live key → flag reminder (and webhook secret when 
   assert.match(stripeModeNotes([{ spec: { name: "STRIPE_SECRET_KEY" }, value: k("rk", "test", "Z9".repeat(20)) }]).join(" "), /TEST key/);
   assert.deepEqual(stripeModeNotes([]), []);
   assert.doesNotMatch(notes.join(" "), /Z9Z9/);
+});
+
+// ---- core#85: Paddle (fake keys in Paddle's documented shapes, assembled at run time) ----
+
+const paddleKey = (mode: "sdbx" | "live"): string => ["pdl", mode, "apikey", "0".repeat(26), "P4".repeat(11), "X9z"].join("_");
+const clientToken = (mode: "test" | "live"): string => [mode, "f".repeat(27)].join("_");
+
+test("core#85 SECRETS: Paddle key and webhook secret on Core, client token on the GUI; all optional until go-live", () => {
+  assert.equal(spec("PADDLE_API_KEY").service, "portal-core");
+  assert.equal(spec("PADDLE_WEBHOOK_SECRET").service, "portal-core");
+  assert.equal(spec("PADDLE_CLIENT_TOKEN").service, "portal-gui");
+  for (const n of ["PADDLE_API_KEY", "PADDLE_WEBHOOK_SECRET", "PADDLE_CLIENT_TOKEN"]) {
+    assert.equal(spec(n).source, "prompt");
+    assert.equal(spec(n).required, false, n);
+  }
+  assert.deepEqual(parseArgs(["--only", "PADDLE_API_KEY,PADDLE_CLIENT_TOKEN"]).only, ["PADDLE_API_KEY", "PADDLE_CLIENT_TOKEN"]);
+});
+
+test("core#85 checkValue: Paddle API key sandbox or live; client token test_ or live_; never one for the other", () => {
+  assert.equal(checkValue(spec("PADDLE_API_KEY"), paddleKey("sdbx")), null);
+  assert.equal(checkValue(spec("PADDLE_API_KEY"), paddleKey("live")), null);
+  assert.match(checkValue(spec("PADDLE_API_KEY"), clientToken("test")) ?? "", /pdl_sdbx_apikey_/);
+  assert.ok(checkValue(spec("PADDLE_API_KEY"), paddleKey("sdbx").slice(0, -1)), "truncated key");
+  assert.equal(checkValue(spec("PADDLE_CLIENT_TOKEN"), clientToken("test")), null);
+  assert.equal(checkValue(spec("PADDLE_CLIENT_TOKEN"), clientToken("live")), null);
+  assert.match(checkValue(spec("PADDLE_CLIENT_TOKEN"), paddleKey("sdbx")) ?? "", /test_/);
+  assert.equal(checkValue(spec("PADDLE_WEBHOOK_SECRET"), ["pdl", "ntfset", "s".repeat(40)].join("_")), null);
+  assert.ok(checkValue(spec("PADDLE_WEBHOOK_SECRET"), "short"));
+  assert.equal(checkValue(spec("PADDLE_API_KEY"), ""), null, "Enter skips");
+});
+
+test("core#85 paddleModeNotes: sandbox key → sandbox note; live key → TB_PADDLE_ALLOW_LIVE and webhook reminders; mixed modes warned; never the value", () => {
+  const n = (name: string, value: string) => ({ spec: { name }, value });
+  assert.deepEqual(paddleModeNotes([]), []);
+  const sandbox = paddleModeNotes([n("PADDLE_API_KEY", paddleKey("sdbx")), n("PADDLE_CLIENT_TOKEN", clientToken("test"))]);
+  assert.equal(sandbox.length, 1);
+  assert.match(sandbox[0] ?? "", /sandbox/);
+  const live = paddleModeNotes([n("PADDLE_API_KEY", paddleKey("live"))]);
+  assert.ok(live.some((l) => /TB_PADDLE_ALLOW_LIVE=1/.test(l)));
+  assert.ok(live.some((l) => /PADDLE_WEBHOOK_SECRET/.test(l)));
+  assert.ok(!paddleModeNotes([n("PADDLE_API_KEY", paddleKey("live")), n("PADDLE_WEBHOOK_SECRET", "w")]).some((l) => /PADDLE_WEBHOOK_SECRET/.test(l)));
+  const mixed = paddleModeNotes([n("PADDLE_API_KEY", paddleKey("sdbx")), n("PADDLE_CLIENT_TOKEN", clientToken("live"))]);
+  assert.ok(mixed.some((l) => /different Paddle environments/.test(l)));
+  const all = [...sandbox, ...live, ...mixed].join(" ");
+  assert.doesNotMatch(all, /P4P4|ffff/);
 });
 
 // ---- Stripe permission preflight (mocked fetch; fake keys only; no network) ----
